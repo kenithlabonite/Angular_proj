@@ -1,0 +1,19 @@
+{
+    "database": {
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "root",
+      "database": "node-mysql-signup-verification-api"
+    },
+    "secret": "jwt",
+    "emailFrom": "info@node-mysql-signup-verification-api.com",
+    "smtpOptions": {
+      "host": "ENTER YOUR OWN SMTP OPTIONS OR CREATE FREE TEST ACCOUNT IN ONE CLICK AT https://ethereal.email/",
+      "port": 587,
+      "auth": {
+        "user": "",
+        "pass": ""
+      }
+    }
+  }
