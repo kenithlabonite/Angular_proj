@@ -25,9 +25,9 @@ function model(sequelize) {
     // disable default timestamp fields (createdAt and updatedAt)
     timestamps: false
   };
-  console.log("Defining model:", 'account' ,'refreshToken');
+ /* console.log("Defining model:", 'account' ,'refreshToken');
   const Model = sequelize.define('...', attributes, options);
   console.log("Model defined:", Model);
-  return Model;
+  return Model;*/
   return sequelize.define('refreshToken', attributes, options);
 }

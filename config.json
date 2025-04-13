@@ -6,14 +6,14 @@
       "password": "root",
       "database": "node-mysql-signup-verification-api"
     },
-    "secret": "jwt",
+    "secret": "93425687-bff7-497b-afd2-8d5e0eb1699c",
     "emailFrom": "info@node-mysql-signup-verification-api.com",
     "smtpOptions": {
-      "host": "ENTER YOUR OWN SMTP OPTIONS OR CREATE FREE TEST ACCOUNT IN ONE CLICK AT https://ethereal.email/",
+      "host": "smtp.ethereal.email",
       "port": 587,
       "auth": {
-        "user": "",
-        "pass": ""
+        "user": "lincoln.schamberger0@ethereal.email",
+        "pass": "m7f2G5GbTyHTZawgDw"
       }
     }
   }

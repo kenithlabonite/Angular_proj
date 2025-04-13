@@ -36,9 +36,11 @@ function model(sequelize) {
     }
     
   };
-  console.log("Defining model:", 'account','refreshToken');
+
+  return sequelize.define('account', attributes, options);
+ /* console.log("Defining model:", 'account','refreshToken');
 const Model = sequelize.define('...', attributes, options);
 console.log("Model defined:", Model);
 return Model;
-  return sequelize.define('account', attributes, options);
+  return sequelize.define('account', attributes, options);*/
 }  
