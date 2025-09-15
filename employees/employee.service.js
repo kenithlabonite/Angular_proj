@@ -1,4 +1,3 @@
-// employees/employee.service.js
 const db = require('_helpers/db');
 const { Op } = require('sequelize');
 
@@ -25,15 +24,16 @@ async function create(params) {
   const account = await db.Account.findOne({ where: { email: params.email } });
   if (!account) throw 'Related account not found for email';
 
-  // generate EmployeeID like EMP001, EMP002 ... based on count (simple)
+  // generate EmployeeID like EMP001, EMP002 ... based on count (simple)//
   const count = await db.Employee.count();
   const next = count + 1;
   const EmployeeID = params.EmployeeID ? params.EmployeeID : `EMP${String(next).padStart(3, '0')}`;
 
   // avoid duplicate EmployeeID
   if (await db.Employee.findByPk(EmployeeID)) {
-    throw `EmployeeID ${EmployeeID} already exists`;
+    throw `EmployeeID ${EmployeeID} is already exists`;
   }
+
 
   const employee = new db.Employee({
     EmployeeID,
