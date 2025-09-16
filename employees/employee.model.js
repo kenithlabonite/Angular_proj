@@ -1,22 +1,23 @@
-// employees/employee.model.js
 const { DataTypes } = require('sequelize');
 
-module.exports = model;
+module.exports = (sequelize) => {
+    const attributes = {
+        // FK to accounts.id
+        EmployeeID: { 
+            type: DataTypes.INTEGER,
+            primaryKey: true,
+            references: { model: 'accounts', key: 'id' },
+            onDelete: 'CASCADE',
+            onUpdate: 'CASCADE'
+        },
+        email: { type: DataTypes.STRING, allowNull: false },
+        position: { type: DataTypes.STRING },
+        department: { type: DataTypes.STRING },
+        hireDate: { type: DataTypes.DATE },
+        status: { type: DataTypes.ENUM('active', 'inactive'), defaultValue: 'active' }
+    };
 
-function model(sequelize) {
-  const attributes = {
-    EmployeeID: { type: DataTypes.STRING(55), primaryKey: true },
-    email: { type: DataTypes.STRING, allowNull: false },
-    position: { type: DataTypes.STRING, allowNull: false },
-    department: { type: DataTypes.STRING, allowNull: false },
-    hireDate: { type: DataTypes.DATE, allowNull: true },
-    /* status: { type: DataTypes.ENUM('Active', 'Inactive'), allowNull: false, defaultValue: 'Active' }, */
-    created: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
-    updated: { type: DataTypes.DATE }
-  };
+    const options = { timestamps: false };
 
-  const options = { timestamps: false };
-
-  return sequelize.define('employee', attributes, options);
-}
-
+    return sequelize.define('employee', attributes, options);
+};

@@ -7,27 +7,31 @@ module.exports = db = {};
 initialize();
 
 async function initialize() {
-    // create db if it doesn't already exist
     const { host, port, user, password, database } = config.database;
+
+    // Create database if it doesn't exist
     const connection = await mysql.createConnection({ host, port, user, password });
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
 
-    // connect to db
+    // Connect with Sequelize
     const sequelize = new Sequelize(database, user, password, { dialect: 'mysql' });
 
-    // init models and add them to the exported db object
-    db.Account = require('../accounts/account.model')(sequelize);
-    db.RefreshToken = require('../accounts/refresh-token.model')(sequelize);
-    db.Employee = require('../employees/employee.model')(sequelize);
+    // Import models
+    db.Account = require('../accounts/account.model.js')(sequelize);
+    db.RefreshToken = require('../accounts/refresh-token.model.js')(sequelize);
+    db.Employee = require('../employees/employee.model.js')(sequelize);
 
-    // define relationships
+    // ----------------- Relationships -----------------
+
+    // Account ↔ RefreshTokens (1 → many)
     db.Account.hasMany(db.RefreshToken, { onDelete: 'CASCADE' });
     db.RefreshToken.belongsTo(db.Account);
 
-    // account <-> employee (email relation)
-    db.Account.hasOne(db.Employee, { foreignKey: 'email', sourceKey: 'email' });
-    db.Employee.belongsTo(db.Account, { foreignKey: 'email', targetKey: 'email' });
+    // Account ↔ Employee (1 → 1 via EmployeeID = Account.id)
+    db.Account.hasOne(db.Employee, { foreignKey: 'EmployeeID', sourceKey: 'id', onDelete: 'CASCADE' });
+    db.Employee.belongsTo(db.Account, { foreignKey: 'EmployeeID', targetKey: 'id', onDelete: 'CASCADE' });
 
-    // sync all models with database
-    await sequelize.sync();
+    // Sync DB
+    await sequelize.sync({ alter: true }); // updates schema safely
+
 }

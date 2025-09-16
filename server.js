@@ -6,6 +6,7 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const errorHandler = require('_middleware/error-handler');
 
+// middleware
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(cookieParser());
@@ -14,10 +15,14 @@ app.use(cookieParser());
 app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
 
 // api routes
-app.use('/accounts', require('./accounts/accounts.controller'));
+const accountRoutes = require('./accounts/accounts.controller');
+const employeeRoutes = require('./employees/employee.controller');
+// If you plan to expose refresh tokens via API, add a controller for it
+// const refreshTokenRoutes = require('./accounts/refresh-tokens.controller');
 
-// swagger docs route
-app.use('/api-docs', require('_helpers/swagger'));
+app.use('/accounts', accountRoutes);
+app.use('/employees', employeeRoutes);
+// app.use('/refreshtokens', refreshTokenRoutes);
 
 // global error handler
 app.use(errorHandler);

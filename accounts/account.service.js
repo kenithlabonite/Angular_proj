@@ -1,7 +1,8 @@
+// account.service.js
 const config = require('config.json');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const crypto = require("crypto");
+const crypto = require('crypto');
 const { Op } = require('sequelize');
 const sendEmail = require('_helpers/send-email');
 const db = require('_helpers/db');
@@ -22,6 +23,8 @@ module.exports = {
     update,
     delete: _delete
 };
+
+// ------------------------- Authentication & tokens -------------------------
 
 async function authenticate({ email, password, ipAddress }) {
     const account = await db.Account.scope('withHash').findOne({ where: { email } });
@@ -77,8 +80,10 @@ async function revokeToken({ token, ipAddress }) {
     await refreshToken.save();
 }
 
+// ------------------------- Registration / Password flows -------------------------
+
 async function register(params, origin) {
-    // validate
+    // prevent duplicate registration
     if (await db.Account.findOne({ where: { email: params.email } })) {
         // send already registered error in email to prevent account enumeration
         return await sendAlreadyRegisteredEmail(params.email, origin);
@@ -98,7 +103,7 @@ async function register(params, origin) {
     // save account
     await account.save();
 
-    // send email
+    // send verification email
     await sendVerificationEmail(account, origin);
 }
 
@@ -150,6 +155,8 @@ async function resetPassword({ token, password }) {
     await account.save();
 }
 
+// ------------------------- Read / Write / Delete -------------------------
+
 async function getAll() {
     const accounts = await db.Account.findAll({
         attributes: ['id', 'title', 'firstName', 'lastName', 'email', 'role', 'status', 'created', 'updated', 'isVerified']
@@ -159,25 +166,46 @@ async function getAll() {
 
 async function getById(id) {
     const account = await getAccount(id);
-    if (!account) return null; // ✅ instead of throwing
+    if (!account) return null; // return null instead of throwing
     return basicDetails(account);
 }
 
 async function create(params) {
-    // validate
+    // validate email uniqueness
     if (await db.Account.findOne({ where: { email: params.email } })) {
-        throw 'Email "' + params.email + '" is already registered';
+        throw `Email "${params.email}" is already registered`;
     }
 
+    // create account object
     const account = new db.Account(params);
+
+    // mark verified if you want admin-created accounts to be auto-verified
     account.verified = Date.now();
 
-    // hash password
-    account.passwordHash = await hash(params.password);
+    // If admin provided a password -> hash & save normally
+    if (params.password) {
+        account.passwordHash = await hash(params.password);
+    } else {
+        // No password provided -> create reset token so the user can set a password later
+        account.resetToken = randomTokenString();
+        account.resetTokenExpires = new Date(Date.now() + 24*60*60*1000);
 
-    // save account
+        // persist account first so token is saved
+        await account.save();
+
+        // Attempt to send reset email; if mail isn't configured just log token
+        try {
+            await sendPasswordResetEmail(account, /* origin */ null);
+        } catch (err) {
+            // don't fail creation if email sending fails; log for debugging
+            console.warn('sendPasswordResetEmail failed. Reset token:', account.resetToken);
+        }
+
+        return basicDetails(account);
+    }
+
+    // If we hashed password branch, save account normally
     await account.save();
-
     return basicDetails(account);
 }
 
@@ -194,9 +222,11 @@ async function update(id, params) {
         throw 'Email "' + params.email + '" is already taken';
     }
 
-    // hash password if it was entered
+    // hash password if it was entered and remove raw password
     if (params.password) {
         params.passwordHash = await hash(params.password);
+        delete params.password;
+        delete params.confirmPassword;
     }
 
     // explicitly handle status if provided
@@ -206,13 +236,11 @@ async function update(id, params) {
 
     // copy remaining params to account
     Object.assign(account, params);
-        account.updated = Date.now();
-        await account.save();
-
+    account.updated = Date.now();
+    await account.save();
 
     return basicDetails(account);
 }
-
 
 async function _delete(id) {
     const account = await getAccount(id);
@@ -220,11 +248,11 @@ async function _delete(id) {
     await account.destroy();
 }
 
-// helper functions
+// ------------------------- Helper functions -------------------------
 
 async function getAccount(id) {
     const account = await db.Account.findByPk(id);
-    if (!account) return null; // ✅ changed throw to return null
+    if (!account) return null;
     return account;
 }
 
@@ -262,7 +290,7 @@ function basicDetails(account) {
     return { id, title, firstName, lastName, email, role, status, created, updated, isVerified };
 }
 
-
+// ------------------------- Email helpers -------------------------
 
 async function sendVerificationEmail(account, origin) {
     let message;

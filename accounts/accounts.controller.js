@@ -16,7 +16,7 @@ router.post('/verify-email', verifyEmailSchema, verifyEmail);
 router.post('/forgot-password', forgotPasswordSchema, forgotPassword);
 router.post('/validate-reset-token', validateResetTokenSchema, validateResetToken);
 router.post('/reset-password', resetPasswordSchema, resetPassword);
-router.get('/', authorize(Role.Admin), getAll);
+router.get('/', /* authorize(Role.Admin), */ getAll);
 router.get('/:id', authorize(), getById);
 router.post('/', authorize(Role.Admin), createSchema, create);
 router.put('/:id', authorize(), updateSchema, update);
@@ -206,13 +206,12 @@ function createSchema(req, res, next) {
     firstName: Joi.string().required(),
     lastName: Joi.string().required(),
     email: Joi.string().email().required(),
-    password: Joi.string().min(6).required(),
-    confirmPassword: Joi.string().valid(Joi.ref('password')).required(),
     role: Joi.string().valid(Role.Admin, Role.User).required(),
     status: Joi.string().valid('active', 'inactive').required()
   });
   validateRequest(req, next, schema);
 }
+
 
 function create(req, res, next) {
   accountService.create(req.body)
