@@ -831,6 +831,27 @@ Size: 532 B
 
 
 ================================================================================
+File: departments\department.controller.js
+Size: 0 B
+================================================================================
+
+
+
+================================================================================
+File: departments\department.model.js
+Size: 0 B
+================================================================================
+
+
+
+================================================================================
+File: departments\department.service.js
+Size: 0 B
+================================================================================
+
+
+
+================================================================================
 File: employees\employee.controller.js
 Size: 1.35 kB
 ================================================================================
@@ -1008,7 +1029,7 @@ Size: 996 B
   "scripts": {
     "start": "node ./server.js",
     "start:dev": "nodemon ./server.js",
-    "export:all": "folder2txt --output backend.txt C:/Users/Kenith Labonite/group-project-repo --exclude node_modules"
+    "export:all": "folder2txt --output Backend.txt C:/Users/Kenith Labonite/group-project-repo --exclude node_modules"
   },
   "keywords": [],
   "author": "",
@@ -1062,6 +1083,7 @@ app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: 
 // api routes
 const accountRoutes = require('./accounts/accounts.controller');
 const employeeRoutes = require('./employees/employee.controller');
+
 // If you plan to expose refresh tokens via API, add a controller for it
 // const refreshTokenRoutes = require('./accounts/refresh-tokens.controller');
 

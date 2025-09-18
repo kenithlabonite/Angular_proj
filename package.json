@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node ./server.js",
     "start:dev": "nodemon ./server.js",
-    "export:all": "folder2txt --output backend.txt C:/Users/Kenith Labonite/group-project-repo --exclude node_modules"
+    "export:all": "folder2txt --output Backend1.txt C:/Users/Kenith Labonite/group-project-repo --exclude node_modules"
   },
   "keywords": [],
   "author": "",

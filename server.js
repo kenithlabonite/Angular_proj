@@ -17,11 +17,17 @@ app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: 
 // api routes
 const accountRoutes = require('./accounts/accounts.controller');
 const employeeRoutes = require('./employees/employee.controller');
+const departmentRoutes = require('./departments');
+const requestRoutes = require('./requests/request.controller');
+
+
 // If you plan to expose refresh tokens via API, add a controller for it
 // const refreshTokenRoutes = require('./accounts/refresh-tokens.controller');
 
 app.use('/accounts', accountRoutes);
 app.use('/employees', employeeRoutes);
+app.use('/departments', departmentRoutes);
+app.use('/requests', requestRoutes);
 // app.use('/refreshtokens', refreshTokenRoutes);
 
 // global error handler
