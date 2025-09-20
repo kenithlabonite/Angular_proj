@@ -1,11 +1,20 @@
+// models/employee.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
   const attributes = {
+    EmployeeID: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      primaryKey: true,
+      unique: true,
+      field: 'EmployeeID'
+    },
+
     accountId: {
       type: DataTypes.INTEGER.UNSIGNED,
-      primaryKey: true,
       allowNull: false,
+      field: 'accountId',
       references: {
         model: 'accounts',
         key: 'id'
@@ -13,31 +22,74 @@ module.exports = (sequelize) => {
       onUpdate: 'CASCADE',
       onDelete: 'CASCADE'
     },
-    employeeCode: {  // maps to EmployeeID in DB
-      type: DataTypes.STRING(55),
-      allowNull: true,
-      unique: true,
-      field: 'EmployeeID'
+
+    position: {
+      type: DataTypes.STRING,
+      allowNull: true
     },
-    position: { type: DataTypes.STRING },
-    department: { type: DataTypes.STRING },
-    hireDate: { type: DataTypes.DATE },
+
+    // ✅ Correct foreign key mapping
+    departmentId: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      field: 'DepartmentID',
+      references: {
+        model: 'departments',
+        key: 'id'
+      },
+      onUpdate: 'CASCADE',
+      onDelete: 'SET NULL'
+    },
+
+    hireDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      field: 'hireDate'
+    },
+
     status: {
       type: DataTypes.ENUM('active', 'inactive'),
       allowNull: false,
       defaultValue: 'active'
     },
-    departmentId: {
-      type: DataTypes.INTEGER.UNSIGNED,
+
+    createdAt: {
+      type: DataTypes.DATE,
       allowNull: true,
-      field: 'DepartmentID'
+      field: 'created'
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: 'updated'
     }
   };
 
   const options = {
     tableName: 'employees',
-    timestamps: false
+    timestamps: true,
+    createdAt: 'created',
+    updatedAt: 'updated'
   };
 
-  return sequelize.define('Employee', attributes, options);
+  const Employee = sequelize.define('Employee', attributes, options);
+
+  Employee.associate = (models) => {
+    if (models.Account) {
+      Employee.belongsTo(models.Account, {
+        foreignKey: 'accountId',
+        targetKey: 'id',
+        as: 'Account'
+      });
+    }
+    if (models.Department) {
+      Employee.belongsTo(models.Department, {
+        foreignKey: 'departmentId', // Sequelize alias → maps to DepartmentID
+        targetKey: 'id',
+        as: 'Department'
+      });
+    }
+  };
+
+  return Employee;
 };

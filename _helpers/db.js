@@ -69,7 +69,7 @@ async function initialize() {
   // 5) Sync DB schema
   try {
     console.info('[DB] Syncing models to database (alter=true).');
-    await sequelize.sync({ alter: true });
+    await sequelize.sync(); 
     console.info('[DB] Sequelize sync completed.');
   } catch (syncErr) {
     console.error('[DB] Sequelize sync failed:', syncErr);

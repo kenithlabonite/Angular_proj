@@ -2961,68 +2961,154 @@ module.exports = router;
 
 ================================================================================
 File: employees\employee.controller.js
-Size: 1.35 kB
+Size: 3.5 kB
 ================================================================================
 
+// employees/employees.controller.js
 const express = require('express');
 const router = express.Router();
 const employeeService = require('./employee.service');
+const workflowService = require('../workflows/workflow.service');
 const authorize = require('_middleware/authorize');
 const Role = require('_helpers/role');
 
-// routes
+// ===== Routes =====
 router.get('/', /* authorize(Role.Admin), */ getAll);
-router.get('/:id', authorize(Role.Admin), getById);
-router.post('/', authorize(Role.Admin), create);
-router.put('/:id', authorize(Role.Admin), update);
-router.delete('/:id', authorize(Role.Admin), _delete);
+router.get('/next-id', /* authorize(Role.Admin), */ getNextId);
+router.get('/:id', /* authorize(Role.Admin), */ getById);
+router.post('/', /* authorize(Role.Admin), */ create);
+router.put('/:id', /* authorize(Role.Admin), */ update);
+router.put('/:id/transfer', /* authorize(Role.Admin), */ transferDepartment);
+router.delete('/:id', /* authorize(Role.Admin), */ _delete);
 
 module.exports = router;
 
-function getAll(req, res, next) {
-    employeeService.getAll()
-        .then(employees => res.json(employees))
-        .catch(next);
+// ===== Controller Handlers =====
+
+// Get all employees (with Department + Account)
+async function getAll(req, res, next) {
+  try {
+    const employees = await employeeService.getAll({
+      includeDepartment: true,
+      includeAccount: true
+    });
+    res.json(employees);
+  } catch (err) {
+    console.error('Error in getAll:', err);
+    next(err);
+  }
 }
 
-function getById(req, res, next) {
-    employeeService.getById(req.params.id)
-        .then(employee => employee ? res.json(employee) : res.sendStatus(404))
-        .catch(next);
+// Generate next EmployeeID
+async function getNextId(req, res, next) {
+  try {
+    const nextId = await employeeService.generateNextEmployeeID();
+    res.json({ nextId });
+  } catch (err) {
+    console.error('Error in getNextId:', err);
+    next(err);
+  }
 }
 
-function create(req, res, next) {
-    employeeService.create(req.body)
-        .then(employee => res.json(employee))
-        .catch(next);
+// Get one employee by EmployeeID
+async function getById(req, res, next) {
+  try {
+    const employee = await employeeService.getById(req.params.id, {
+      includeDepartment: true,
+      includeAccount: true
+    });
+    if (!employee) return res.sendStatus(404);
+    res.json(employee);
+  } catch (err) {
+    console.error('Error in getById:', err);
+    next(err);
+  }
 }
 
-function update(req, res, next) {
-    employeeService.update(req.params.id, req.body)
-        .then(employee => res.json(employee))
-        .catch(next);
+// Create new employee
+async function create(req, res, next) {
+  try {
+    const employee = await employeeService.create(req.body);
+    res.status(201).json(employee);
+  } catch (err) {
+    console.error('Error in create:', err);
+    next(err);
+  }
 }
 
-function _delete(req, res, next) {
-    employeeService.delete(req.params.id)
-        .then(() => res.json({ message: 'Employee deleted successfully' }))
-        .catch(next);
+// Update existing employee
+async function update(req, res, next) {
+  try {
+    const employee = await employeeService.update(req.params.id, req.body);
+    res.json(employee);
+  } catch (err) {
+    console.error('Error in update:', err);
+    next(err);
+  }
+}
+
+// Transfer employee to another department + create workflow
+async function transferDepartment(req, res, next) {
+  try {
+    const { id } = req.params; // EmployeeID
+    const { departmentId } = req.body;
+
+    // 1. Update employee
+    const employee = await employeeService.update(id, { departmentId });
+    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+
+    // 2. Create workflow entry
+    const workflow = await workflowService.createWorkflow(
+      employee.EmployeeID,
+      'Transfer',
+      `Transferred to Department ID ${departmentId}`
+    );
+
+    res.json({
+      message: `Employee ${employee.EmployeeID} transferred and workflow created`,
+      employee,
+      workflow
+    });
+  } catch (err) {
+    console.error('Error in transferDepartment:', err);
+    next(err);
+  }
+}
+
+// Delete employee
+async function _delete(req, res, next) {
+  try {
+    await employeeService.delete(req.params.id);
+    res.json({ message: 'Employee deleted successfully' });
+  } catch (err) {
+    console.error('Error in delete:', err);
+    next(err);
+  }
 }
 
 
 ================================================================================
 File: employees\employee.model.js
-Size: 1.06 kB
+Size: 2.07 kB
 ================================================================================
 
+// models/employee.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
   const attributes = {
+    EmployeeID: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      primaryKey: true,
+      unique: true,
+      field: 'EmployeeID'
+    },
+
     accountId: {
       type: DataTypes.INTEGER.UNSIGNED,
-      primaryKey: true,
       allowNull: false,
+      field: 'accountId',
       references: {
         model: 'accounts',
         key: 'id'
@@ -3030,39 +3116,82 @@ module.exports = (sequelize) => {
       onUpdate: 'CASCADE',
       onDelete: 'CASCADE'
     },
-    employeeCode: {  // maps to EmployeeID in DB
-      type: DataTypes.STRING(55),
-      allowNull: true,
-      unique: true,
-      field: 'EmployeeID'
+
+    position: {
+      type: DataTypes.STRING,
+      allowNull: true
     },
-    position: { type: DataTypes.STRING },
-    department: { type: DataTypes.STRING },
-    hireDate: { type: DataTypes.DATE },
+
+    // ✅ Correct foreign key mapping
+    departmentId: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      field: 'DepartmentID',
+      references: {
+        model: 'departments',
+        key: 'id'
+      },
+      onUpdate: 'CASCADE',
+      onDelete: 'SET NULL'
+    },
+
+    hireDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      field: 'hireDate'
+    },
+
     status: {
       type: DataTypes.ENUM('active', 'inactive'),
       allowNull: false,
       defaultValue: 'active'
     },
-    departmentId: {
-      type: DataTypes.INTEGER.UNSIGNED,
+
+    createdAt: {
+      type: DataTypes.DATE,
       allowNull: true,
-      field: 'DepartmentID'
+      field: 'created'
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: 'updated'
     }
   };
 
   const options = {
     tableName: 'employees',
-    timestamps: false
+    timestamps: true,
+    createdAt: 'created',
+    updatedAt: 'updated'
   };
 
-  return sequelize.define('Employee', attributes, options);
+  const Employee = sequelize.define('Employee', attributes, options);
+
+  Employee.associate = (models) => {
+    if (models.Account) {
+      Employee.belongsTo(models.Account, {
+        foreignKey: 'accountId',
+        targetKey: 'id',
+        as: 'Account'
+      });
+    }
+    if (models.Department) {
+      Employee.belongsTo(models.Department, {
+        foreignKey: 'departmentId', // Sequelize alias → maps to DepartmentID
+        targetKey: 'id',
+        as: 'Department'
+      });
+    }
+  };
+
+  return Employee;
 };
 
 
 ================================================================================
 File: employees\employee.service.js
-Size: 2.52 kB
+Size: 4.4 kB
 ================================================================================
 
 // employees/employee.service.js
@@ -3073,69 +3202,123 @@ module.exports = {
   getById,
   create,
   update,
-  delete: _delete
+  delete: _delete,
+  generateNextEmployeeID
 };
 
-// ------------------------- Queries -------------------------
+// ====== QUERIES ======
 
-// return all employees, include linked account (for email display)
 async function getAll() {
-  return await db.Employee.findAll({ include: db.Account });
+  return await db.Employee.findAll({
+    include: [
+      { model: db.Account, as: 'Account' },
+      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName'] }
+    ],
+    order: [['created', 'DESC']]
+  });
 }
 
 async function getById(id) {
-  return await db.Employee.findByPk(id, { include: db.Account });
+  return await db.Employee.findByPk(id, {
+    include: [
+      { model: db.Account, as: 'Account' },
+      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName'] }
+    ]
+  });
 }
 
-// ------------------------- Create -------------------------
+async function generateNextEmployeeID() {
+  const last = await db.Employee.findOne({ order: [['EmployeeID', 'DESC']] });
+  let nextNum = 1;
+  if (last && last.EmployeeID) {
+    const match = String(last.EmployeeID).match(/EMP0*([0-9]+)$/i);
+    if (match && match[1]) nextNum = parseInt(match[1], 10) + 1;
+    else nextNum = (await db.Employee.count()) + 1;
+  }
+  return `EMP${String(nextNum).padStart(3, '0')}`;
+}
+
+// ====== CREATE ======
+
+async function resolveAccount(params) {
+  if (params.accountId) {
+    const account = await db.Account.findByPk(params.accountId);
+    if (!account) throw 'Related account not found for given accountId';
+    return account;
+  }
+  if (params.email) {
+    const account = await db.Account.findOne({ where: { email: params.email } });
+    if (!account) throw 'Related account not found for given email';
+    return account;
+  }
+  throw 'Please supply accountId or email for related account';
+}
 
 async function create(params) {
-  // validate account exists
-  const account = await db.Account.findByPk(params.accountId);
-  if (!account) throw 'Related account not found for given accountId';
+  const account = await resolveAccount(params);
+  const status = (params.status || 'active').toString().toLowerCase();
 
-  // generate EmployeeID if not provided
-  const count = await db.Employee.count();
-  const next = count + 1;
-  const EmployeeID = params.EmployeeID
-    ? params.EmployeeID
-    : `EMP${String(next).padStart(3, '0')}`;
+  const existing = await db.Employee.findOne({ where: { accountId: account.id } });
+  if (existing) throw 'Employee for this account already exists';
 
-  if (await db.Employee.findByPk(EmployeeID)) {
-    throw `EmployeeID ${EmployeeID} already exists`;
+  const base = {
+    accountId: account.id,
+    position: params.position || null,
+    departmentId: params.departmentId || null, // ✅ correct field
+    hireDate: params.hireDate || null,
+    status,
+    created: new Date()
+  };
+
+  if (params.EmployeeID) {
+    if (await db.Employee.findByPk(params.EmployeeID)) {
+      throw `EmployeeID ${params.EmployeeID} already exists`;
+    }
+    const employee = new db.Employee({ ...base, EmployeeID: params.EmployeeID });
+    await employee.save();
+    return await getById(params.EmployeeID);
   }
 
-  const employee = new db.Employee({
-    EmployeeID,
-    accountId: params.accountId,
-    position: params.position || null,
-    department: params.department || null,
-    hireDate: params.hireDate || null,
-    status: params.status || 'active',
-    created: new Date()
-  });
-
-  await employee.save();
-  return await getById(EmployeeID);
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const candidateId = await generateNextEmployeeID();
+    try {
+      const employee = new db.Employee({ ...base, EmployeeID: candidateId });
+      await employee.save();
+      return await getById(candidateId);
+    } catch (err) {
+      const msg = (err && err.message ? err.message.toLowerCase() : '');
+      const uniqueError =
+        msg.includes('unique') ||
+        msg.includes('duplicate') ||
+        err.name === 'SequelizeUniqueConstraintError';
+      if (uniqueError && attempt < 5) continue;
+      throw err;
+    }
+  }
+  throw 'Failed to generate unique EmployeeID after multiple attempts';
 }
 
-// ------------------------- Update -------------------------
+// ====== UPDATE ======
 
 async function update(id, params) {
   const employee = await db.Employee.findByPk(id);
   if (!employee) throw 'Employee not found';
 
-  // if accountId changed, ensure target account exists
   if (params.accountId && params.accountId !== employee.accountId) {
     const account = await db.Account.findByPk(params.accountId);
     if (!account) throw 'Related account not found for new accountId';
+    const duplicate = await db.Employee.findOne({ where: { accountId: params.accountId } });
+    if (duplicate) throw 'Employee for this account already exists';
+    employee.accountId = params.accountId;
   }
 
-  // only allow certain fields to be updated
-  const allowed = ['accountId', 'position', 'department', 'hireDate', 'status'];
+  const allowed = ['position', 'departmentId', 'hireDate', 'status'];
   for (const f of allowed) {
-    if (Object.prototype.hasOwnProperty.call(params, f)) {
-      employee[f] = params[f];
+    if (params[f] !== undefined) {
+      employee[f] =
+        f === 'status'
+          ? (params[f] || 'active').toString().toLowerCase()
+          : params[f];
     }
   }
 
@@ -3144,7 +3327,7 @@ async function update(id, params) {
   return await getById(employee.EmployeeID);
 }
 
-// ------------------------- Delete -------------------------
+// ====== DELETE ======
 
 async function _delete(id) {
   const employee = await db.Employee.findByPk(id);
@@ -3193,6 +3376,14 @@ Size: 997 B
     "nodemon": "^3.1.9"
   }
 }
+
+
+================================================================================
+File: README.md
+Size: 15 B
+================================================================================
+
+# Angular_proj
 
 
 ================================================================================
@@ -4167,14 +4358,172 @@ components:
 
 
 ================================================================================
+File: workflows\workflow.controller.js
+Size: 1.52 kB
+================================================================================
+
+const express = require('express');
+const router = express.Router();
+const db = require('../_helpers/db');
+const Workflow = db.Workflow;
+const Employee = db.Employee;
+
+/**
+ * Get all workflows
+ */
+router.get('/', async (req, res, next) => {
+  try {
+    const workflows = await Workflow.findAll({
+      include: [{ model: Employee, attributes: ['EmployeeID', 'position'] }],
+      order: [['createdAt', 'DESC']]
+    });
+    res.json(workflows);
+  } catch (err) {
+    console.error('Error in getAll workflows:', err);
+    next(err);
+  }
+});
+
+/**
+ * Get workflows by employee
+ */
+router.get('/:employeeId', async (req, res, next) => {
+  try {
+    const workflows = await Workflow.findAll({
+      where: { employeeId: req.params.employeeId },
+      include: [{ model: Employee, attributes: ['EmployeeID', 'position'] }],
+      order: [['createdAt', 'DESC']]
+    });
+    res.json(workflows);
+  } catch (err) {
+    console.error('Error in getByEmployee:', err);
+    next(err);
+  }
+});
+
+/**
+ * Update workflow status
+ */
+router.put('/:workflowId/status', async (req, res, next) => {
+  try {
+    const workflow = await Workflow.findByPk(req.params.workflowId);
+    if (!workflow) return res.status(404).json({ message: 'Workflow not found' });
+
+    workflow.status = req.body.status || workflow.status;
+    await workflow.save();
+
+    res.json(workflow);
+  } catch (err) {
+    console.error('Error in updateStatus:', err);
+    next(err);
+  }
+});
+
+module.exports = router;
+
+
+================================================================================
+File: workflows\workflow.model.js
+Size: 650 B
+================================================================================
+
+// src/workflows/workflow.model.js
+module.exports = (sequelize, DataTypes) => {
+  return sequelize.define('Workflow', {
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true
+    },
+    employeeId: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    type: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    details: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    status: {
+      type: DataTypes.ENUM('Pending', 'Approved', 'Rejected'),
+      defaultValue: 'Pending'
+    }
+  }, {
+    tableName: 'Workflows',
+    timestamps: true
+  });
+};
+
+
+================================================================================
+File: workflows\workflow.service.js
+Size: 1.15 kB
+================================================================================
+
+const db = require('../_helpers/db');
+
+/**
+ * Create a workflow for an employee
+ */
+async function createWorkflow(employeeId, type, details, status = 'Pending') {
+  const Workflow = db.Workflow;  // <-- get it here, after db init
+  if (!Workflow) throw new Error('Workflow model is not loaded');
+  
+  return await Workflow.create({
+    employeeId,
+    type,
+    details,
+    status
+  });
+}
+
+/**
+ * Get all workflows for an employee
+ */
+async function getByEmployee(employeeId) {
+  const Workflow = db.Workflow;
+  const Employee = db.Employee;
+
+  return await Workflow.findAll({
+    where: { employeeId },
+    include: [
+      { model: Employee, attributes: ['EmployeeID', 'position'] }
+    ],
+    order: [['createdAt', 'DESC']]
+  });
+}
+
+/**
+ * Update workflow status
+ */
+async function updateStatus(workflowId, status) {
+  const Workflow = db.Workflow;
+  const workflow = await Workflow.findByPk(workflowId);
+  if (!workflow) throw new Error('Workflow not found');
+
+  workflow.status = status;
+  return await workflow.save();
+}
+
+module.exports = {
+  createWorkflow,
+  getByEmployee,
+  updateStatus
+};
+
+
+================================================================================
 File: _helpers\db.js
-Size: 2.79 kB
+Size: 3.16 kB
 ================================================================================
 
 // src/_helpers/db.js
 const config = require('config.json');
 const mysql = require('mysql2/promise');
-const { Sequelize } = require('sequelize');
+const { Sequelize, DataTypes } = require('sequelize');
 
 module.exports = db = {
   sequelize: null,
@@ -4208,18 +4557,19 @@ async function initialize() {
     port,
     dialect: 'mysql',
     logging: msg => console.debug('[sequelize]', msg),
-    define: { timestamps: false }, // disable default createdAt/updatedAt
+    define: { timestamps: false }, // default off, models can override
     pool: { max: 10, min: 0, acquire: 30000, idle: 10000 }
   });
 
   db.sequelize = sequelize;
 
   // 3) Import models
-  db.Account = require('../accounts/account.model.js')(sequelize);
-  db.RefreshToken = require('../accounts/refresh-token.model.js')(sequelize);
-  db.Employee = require('../employees/employee.model.js')(sequelize);
-  db.Department = require('../departments/department.model.js')(sequelize);
-  db.Request = require('../requests/request.model.js')(sequelize);
+  db.Account      = require('../accounts/account.model.js')(sequelize, DataTypes);
+  db.RefreshToken = require('../accounts/refresh-token.model.js')(sequelize, DataTypes);
+  db.Employee     = require('../employees/employee.model.js')(sequelize, DataTypes);
+  db.Department   = require('../departments/department.model.js')(sequelize, DataTypes);
+  db.Request      = require('../requests/request.model.js')(sequelize, DataTypes);
+  db.Workflow     = require('../workflows/workflow.model.js')(sequelize, DataTypes); // ✅ fixed
 
   // 4) Define associations
 
@@ -4239,10 +4589,14 @@ async function initialize() {
   db.Account.hasMany(db.Request, { foreignKey: 'accountId', onDelete: 'CASCADE' });
   db.Request.belongsTo(db.Account, { foreignKey: 'accountId' });
 
+  // Employee ↔ Workflow (1 → many)
+  db.Employee.hasMany(db.Workflow, { foreignKey: 'employeeId', onDelete: 'CASCADE' });
+  db.Workflow.belongsTo(db.Employee, { foreignKey: 'employeeId' });
+
   // 5) Sync DB schema
   try {
     console.info('[DB] Syncing models to database (alter=true).');
-    await sequelize.sync({ alter: true });
+    await sequelize.sync();
     console.info('[DB] Sequelize sync completed.');
   } catch (syncErr) {
     console.error('[DB] Sequelize sync failed:', syncErr);

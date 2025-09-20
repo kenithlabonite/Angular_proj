@@ -11,7 +11,7 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(cookieParser());
 
-// allow cors requests from any origin and with credentials
+// allow cors requests
 app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
 
 // api routes
@@ -19,16 +19,13 @@ const accountRoutes = require('./accounts/accounts.controller');
 const employeeRoutes = require('./employees/employee.controller');
 const departmentRoutes = require('./departments');
 const requestRoutes = require('./requests/request.controller');
-
-
-// If you plan to expose refresh tokens via API, add a controller for it
-// const refreshTokenRoutes = require('./accounts/refresh-tokens.controller');
+const workflowRoutes = require('./workflows/workflow.controller'); // ✅ FIX
 
 app.use('/accounts', accountRoutes);
 app.use('/employees', employeeRoutes);
 app.use('/departments', departmentRoutes);
 app.use('/requests', requestRoutes);
-// app.use('/refreshtokens', refreshTokenRoutes);
+app.use('/workflows', workflowRoutes); // ✅ FIX
 
 // global error handler
 app.use(errorHandler);
