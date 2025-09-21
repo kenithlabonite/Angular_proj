@@ -2829,10 +2829,17 @@ Size: 532 B
 
 ================================================================================
 File: departments\department.controller.js
-Size: 1.01 kB
+Size: 1.03 kB
 ================================================================================
 
 const service = require('./department.service');
+
+module.exports = { 
+  getAll, 
+  getById, 
+  create, 
+  update, 
+  delete: _delete };
 
 async function getAll(req, res, next) {
   try {
@@ -2870,34 +2877,62 @@ async function _delete(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { getAll, getById, create, update, delete: _delete };
+
 
 
 ================================================================================
 File: departments\department.model.js
-Size: 454 B
+Size: 850 B
 ================================================================================
 
+// departments/department.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
-  return sequelize.define('Department', {
-    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-    departmentName: { type: DataTypes.STRING, allowNull: false },
-    description: { type: DataTypes.STRING },
-    employeeCounts: { type: DataTypes.INTEGER, defaultValue: 0 }
-  }, {
+  const attributes = {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true
+    },
+    departmentName: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    description: {
+      type: DataTypes.STRING
+    },
+    employeeCounts: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0
+    }
+  };
+
+  const options = {
     tableName: 'departments',
     timestamps: false
-  });
+  };
+
+  const Department = sequelize.define('Department', attributes, options);
+
+  Department.associate = (models) => {
+    Department.hasMany(models.Employee, {
+      foreignKey: 'departmentId',
+      sourceKey: 'id',
+      as: 'Employees'
+    });
+  };
+
+  return Department;
 };
 
 
 ================================================================================
 File: departments\department.service.js
-Size: 797 B
+Size: 2.09 kB
 ================================================================================
 
+// departments/department.service.js
 const db = require('_helpers/db');
 
 module.exports = {
@@ -2908,28 +2943,75 @@ module.exports = {
   delete: _delete
 };
 
+// ====== QUERIES ======
+
 async function getAll() {
-  return await db.Department.findAll();
+  const departments = await db.Department.findAll({
+    include: [
+      { model: db.Employee, as: 'Employees', attributes: ['EmployeeID', 'position', 'status'] }
+    ],
+    order: [['id', 'ASC']]
+  });
+
+  // recalc employeeCounts in case it's out of sync
+  for (const dept of departments) {
+    const count = dept.Employees ? dept.Employees.length : 0;
+    if (dept.employeeCounts !== count) {
+      dept.employeeCounts = count;
+      await dept.save();
+    }
+  }
+
+  return departments;
 }
 
 async function getById(id) {
-  return await db.Department.findByPk(id);
+  const department = await db.Department.findByPk(id, {
+    include: [
+      { model: db.Employee, as: 'Employees', attributes: ['EmployeeID', 'position', 'status'] }
+    ]
+  });
+  if (!department) throw 'Department not found';
+
+  // recalc employeeCounts if needed
+  const count = department.Employees ? department.Employees.length : 0;
+  if (department.employeeCounts !== count) {
+    department.employeeCounts = count;
+    await department.save();
+  }
+
+  return department;
 }
 
+// ====== CREATE ======
+
 async function create(params) {
-  const department = new db.Department(params);
+  const department = new db.Department({
+    departmentName: params.departmentName,
+    description: params.description || null,
+    employeeCounts: 0
+  });
+
   await department.save();
   return department;
 }
+
+// ====== UPDATE ======
 
 async function update(id, params) {
   const department = await getById(id);
   if (!department) throw 'Department not found';
 
-  Object.assign(department, params);
+  const allowed = ['departmentName', 'description'];
+  for (const f of allowed) {
+    if (params[f] !== undefined) department[f] = params[f];
+  }
+
   await department.save();
   return department;
 }
+
+// ====== DELETE ======
 
 async function _delete(id) {
   const department = await getById(id);
@@ -2961,24 +3043,22 @@ module.exports = router;
 
 ================================================================================
 File: employees\employee.controller.js
-Size: 3.5 kB
+Size: 2.5 kB
 ================================================================================
 
 // employees/employees.controller.js
 const express = require('express');
 const router = express.Router();
 const employeeService = require('./employee.service');
-const workflowService = require('../workflows/workflow.service');
 const authorize = require('_middleware/authorize');
 const Role = require('_helpers/role');
 
-// ===== Routes =====
+// Routes
 router.get('/', /* authorize(Role.Admin), */ getAll);
 router.get('/next-id', /* authorize(Role.Admin), */ getNextId);
 router.get('/:id', /* authorize(Role.Admin), */ getById);
 router.post('/', /* authorize(Role.Admin), */ create);
 router.put('/:id', /* authorize(Role.Admin), */ update);
-router.put('/:id/transfer', /* authorize(Role.Admin), */ transferDepartment);
 router.delete('/:id', /* authorize(Role.Admin), */ _delete);
 
 module.exports = router;
@@ -3047,34 +3127,6 @@ async function update(req, res, next) {
   }
 }
 
-// Transfer employee to another department + create workflow
-async function transferDepartment(req, res, next) {
-  try {
-    const { id } = req.params; // EmployeeID
-    const { departmentId } = req.body;
-
-    // 1. Update employee
-    const employee = await employeeService.update(id, { departmentId });
-    if (!employee) return res.status(404).json({ message: 'Employee not found' });
-
-    // 2. Create workflow entry
-    const workflow = await workflowService.createWorkflow(
-      employee.EmployeeID,
-      'Transfer',
-      `Transferred to Department ID ${departmentId}`
-    );
-
-    res.json({
-      message: `Employee ${employee.EmployeeID} transferred and workflow created`,
-      employee,
-      workflow
-    });
-  } catch (err) {
-    console.error('Error in transferDepartment:', err);
-    next(err);
-  }
-}
-
 // Delete employee
 async function _delete(req, res, next) {
   try {
@@ -3089,10 +3141,10 @@ async function _delete(req, res, next) {
 
 ================================================================================
 File: employees\employee.model.js
-Size: 2.07 kB
+Size: 2.03 kB
 ================================================================================
 
-// models/employee.model.js
+// employees/employee.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
@@ -3122,7 +3174,7 @@ module.exports = (sequelize) => {
       allowNull: true
     },
 
-    // ✅ Correct foreign key mapping
+    // ✅ foreign key to departments.id
     departmentId: {
       type: DataTypes.INTEGER.UNSIGNED,
       allowNull: true,
@@ -3178,7 +3230,7 @@ module.exports = (sequelize) => {
     }
     if (models.Department) {
       Employee.belongsTo(models.Department, {
-        foreignKey: 'departmentId', // Sequelize alias → maps to DepartmentID
+        foreignKey: 'departmentId',
         targetKey: 'id',
         as: 'Department'
       });
@@ -3191,7 +3243,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: employees\employee.service.js
-Size: 4.4 kB
+Size: 5.27 kB
 ================================================================================
 
 // employees/employee.service.js
@@ -3212,7 +3264,7 @@ async function getAll() {
   return await db.Employee.findAll({
     include: [
       { model: db.Account, as: 'Account' },
-      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName'] }
+      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] }
     ],
     order: [['created', 'DESC']]
   });
@@ -3222,7 +3274,7 @@ async function getById(id) {
   return await db.Employee.findByPk(id, {
     include: [
       { model: db.Account, as: 'Account' },
-      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName'] }
+      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] }
     ]
   });
 }
@@ -3264,38 +3316,43 @@ async function create(params) {
   const base = {
     accountId: account.id,
     position: params.position || null,
-    departmentId: params.departmentId || null, // ✅ correct field
+    departmentId: params.departmentId || null,
     hireDate: params.hireDate || null,
     status,
     created: new Date()
   };
 
+  let employee;
+
   if (params.EmployeeID) {
     if (await db.Employee.findByPk(params.EmployeeID)) {
       throw `EmployeeID ${params.EmployeeID} already exists`;
     }
-    const employee = new db.Employee({ ...base, EmployeeID: params.EmployeeID });
+    employee = new db.Employee({ ...base, EmployeeID: params.EmployeeID });
     await employee.save();
-    return await getById(params.EmployeeID);
-  }
-
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    const candidateId = await generateNextEmployeeID();
-    try {
-      const employee = new db.Employee({ ...base, EmployeeID: candidateId });
-      await employee.save();
-      return await getById(candidateId);
-    } catch (err) {
-      const msg = (err && err.message ? err.message.toLowerCase() : '');
-      const uniqueError =
-        msg.includes('unique') ||
-        msg.includes('duplicate') ||
-        err.name === 'SequelizeUniqueConstraintError';
-      if (uniqueError && attempt < 5) continue;
-      throw err;
+  } else {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const candidateId = await generateNextEmployeeID();
+      try {
+        employee = new db.Employee({ ...base, EmployeeID: candidateId });
+        await employee.save();
+        break;
+      } catch (err) {
+        const msg = (err && err.message ? err.message.toLowerCase() : '');
+        const uniqueError =
+          msg.includes('unique') ||
+          msg.includes('duplicate') ||
+          err.name === 'SequelizeUniqueConstraintError';
+        if (uniqueError && attempt < 5) continue;
+        throw err;
+      }
     }
   }
-  throw 'Failed to generate unique EmployeeID after multiple attempts';
+
+  // ✅ update department employeeCounts
+  if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
+
+  return await getById(employee.EmployeeID);
 }
 
 // ====== UPDATE ======
@@ -3303,6 +3360,8 @@ async function create(params) {
 async function update(id, params) {
   const employee = await db.Employee.findByPk(id);
   if (!employee) throw 'Employee not found';
+
+  const oldDept = employee.departmentId;
 
   if (params.accountId && params.accountId !== employee.accountId) {
     const account = await db.Account.findByPk(params.accountId);
@@ -3322,8 +3381,16 @@ async function update(id, params) {
     }
   }
 
-  employee.updated = new Date();
   await employee.save();
+
+  // ✅ update department counts
+  if (params.departmentId && params.departmentId !== oldDept) {
+    if (oldDept) await updateDepartmentCount(oldDept);
+    if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
+  } else if (params.departmentId) {
+    await updateDepartmentCount(employee.departmentId);
+  }
+
   return await getById(employee.EmployeeID);
 }
 
@@ -3332,7 +3399,23 @@ async function update(id, params) {
 async function _delete(id) {
   const employee = await db.Employee.findByPk(id);
   if (!employee) throw 'Employee not found';
+
+  const deptId = employee.departmentId;
   await employee.destroy();
+
+  // ✅ update department count
+  if (deptId) await updateDepartmentCount(deptId);
+}
+
+// ====== HELPER ======
+
+async function updateDepartmentCount(departmentId) {
+  if (!departmentId) return;
+  const count = await db.Employee.count({ where: { departmentId } });
+  await db.Department.update(
+    { employeeCounts: count },
+    { where: { id: departmentId } }
+  );
 }
 
 
@@ -3387,83 +3470,123 @@ Size: 15 B
 
 
 ================================================================================
-File: requests\request.controller.js
-Size: 2.12 kB
+File: requests\index.js
+Size: 519 B
 ================================================================================
 
-// requests/request.controller.js
+// requests/index.js
 const express = require('express');
 const router = express.Router();
-const Joi = require('joi');
-const validateRequest = require('_middleware/validate-request');
-const authorize = require('_middleware/authorize'); // optional use
-const requestService = require('./request.service');
+const controller = require('./request.controller');
 
-// routes
-router.get('/', /* authorize(), */ getAll);
-router.get('/:id', /* authorize(), */ getById);
-router.post('/', /* authorize(), */ createSchema, create);
-router.put('/:id', /* authorize(), */ updateSchema, update);
-router.delete('/:id', /* authorize(), */ _delete);
+router.get('/', controller.getAll);
+router.get('/:requestId', controller.getById);
+router.post('/', controller.createSchema, controller.create);
+router.put('/:requestId', controller.updateSchema, controller.update);
+router.post('/:requestId', controller.updateSchema, controller.update);
+router.delete('/:requestId', controller.delete);
 
 module.exports = router;
 
-/* Handlers + Schemas */
 
-function getAll(req, res, next) {
-  requestService.getAll()
-    .then(requests => res.json(requests))
-    .catch(next);
-}
+================================================================================
+File: requests\request.controller.js
+Size: 2.39 kB
+================================================================================
 
-function getById(req, res, next) {
-  requestService.getById(req.params.id)
-    .then(r => r ? res.json(r) : res.sendStatus(404))
-    .catch(next);
-}
+// requests/request.controller.js
+const Joi = require('joi');
+const validateRequest = require('_middleware/validate-request');
+const requestService = require('./request.service');
+
+module.exports = {
+  getAll,
+  getById,
+  createSchema,
+  create,
+  updateSchema,
+  update,
+  delete: _delete
+};
+
+// ------------------ Schemas ------------------
 
 function createSchema(req, res, next) {
   const schema = Joi.object({
+    accountId: Joi.number().required(),
+    employeeEmail: Joi.string().email().optional(),
     type: Joi.string().valid('equipment', 'leave', 'resources').required(),
-    employeeEmail: Joi.string().email().required(),
-    items: Joi.string().required(),
-    status: Joi.string().valid('pending', 'approved', 'disapproved').optional()
+    items: Joi.string().trim().min(1).required(),
+    quantity: Joi.number().integer().min(1).required(),
+    status: Joi.string().valid('pending', 'approved', 'disapproved', 'rejected').optional()
   });
   validateRequest(req, next, schema);
-}
-
-function create(req, res, next) {
-  requestService.create(req.body)
-    .then(r => res.json(r))
-    .catch(next);
 }
 
 function updateSchema(req, res, next) {
   const schema = Joi.object({
-    type: Joi.string().valid('equipment', 'leave', 'resources').optional(),
+    accountId: Joi.number().optional(),
     employeeEmail: Joi.string().email().optional(),
-    items: Joi.string().optional(),
-    status: Joi.string().valid('pending', 'approved', 'disapproved').optional()
+    type: Joi.string().valid('equipment', 'leave', 'resources').optional(),
+    items: Joi.string().trim().min(1).optional(),
+    quantity: Joi.number().integer().min(1).optional(),
+    status: Joi.string().valid('pending', 'approved', 'disapproved', 'rejected').optional()
   });
   validateRequest(req, next, schema);
 }
 
-function update(req, res, next) {
-  requestService.update(req.params.id, req.body)
-    .then(r => res.json(r))
-    .catch(next);
+// ------------------ Handlers ------------------
+
+async function getAll(req, res, next) {
+  try {
+    const list = await requestService.getAll();
+    res.json(list);
+  } catch (err) {
+    next(err);
+  }
 }
 
-function _delete(req, res, next) {
-  requestService.delete(req.params.id)
-    .then(() => res.json({ message: 'Request deleted successfully' }))
-    .catch(next);
+async function getById(req, res, next) {
+  try {
+    const r = await requestService.getById(req.params.requestId);
+    if (!r) return res.sendStatus(404);
+    res.json(r);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function create(req, res, next) {
+  try {
+    const created = await requestService.create(req.body);
+    res.status(201).json(created);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function update(req, res, next) {
+  try {
+    const updated = await requestService.update(req.params.requestId, req.body);
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function _delete(req, res, next) {
+  try {
+    await requestService.delete(req.params.requestId);
+    res.json({ message: 'Request deleted successfully' });
+  } catch (err) {
+    next(err);
+  }
 }
 
 
 ================================================================================
 File: requests\request.model.js
-Size: 1.23 kB
+Size: 1.54 kB
 ================================================================================
 
 // requests/request.model.js
@@ -3471,7 +3594,7 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
   const attributes = {
-    id: {
+    requestId: {
       type: DataTypes.INTEGER.UNSIGNED,
       autoIncrement: true,
       primaryKey: true
@@ -3480,7 +3603,7 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: {
-        model: 'accounts', // foreign key to accounts.id
+        model: 'accounts',
         key: 'id'
       },
       onUpdate: 'CASCADE',
@@ -3491,8 +3614,13 @@ module.exports = (sequelize) => {
       allowNull: false
     },
     items: {
-      type: DataTypes.TEXT, // more flexible than STRING if you store JSON
+      type: DataTypes.STRING(255), // item name
       allowNull: false
+    },
+    quantity: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
+      defaultValue: 1
     },
     status: {
       type: DataTypes.ENUM('pending', 'approved', 'disapproved', 'rejected'),
@@ -3515,13 +3643,25 @@ module.exports = (sequelize) => {
     timestamps: false
   };
 
-  return sequelize.define('Request', attributes, options);
+  const Request = sequelize.define('Request', attributes, options);
+
+  Request.associate = (models) => {
+    if (models.Account) {
+      Request.belongsTo(models.Account, {
+        foreignKey: 'accountId',
+        targetKey: 'id',
+        as: 'Account'
+      });
+    }
+  };
+
+  return Request;
 };
 
 
 ================================================================================
 File: requests\request.service.js
-Size: 2.9 kB
+Size: 4.63 kB
 ================================================================================
 
 // requests/request.service.js
@@ -3535,71 +3675,120 @@ module.exports = {
   delete: _delete
 };
 
+const ALLOWED_TYPES = ['equipment', 'leave', 'resources'];
+const ALLOWED_STATUS = ['pending', 'approved', 'disapproved', 'rejected'];
+
 // ------------------------- Get all -------------------------
 async function getAll() {
   return await db.Request.findAll({
-    include: { model: db.Account, attributes: ['id', 'email'] },
+    include: [{ model: db.Account, attributes: ['id', 'email', 'firstName', 'lastName'], required: false }],
     order: [['created', 'DESC']]
   });
 }
 
-// ------------------------- Get by id -------------------------
-async function getById(id) {
-  return await db.Request.findByPk(id, {
-    include: { model: db.Account, attributes: ['id', 'email'] }
+// ------------------------- Get by requestId -------------------------
+async function getById(requestId) {
+  if (requestId === undefined || requestId === null) return null;
+  return await db.Request.findByPk(requestId, {
+    include: [{ model: db.Account, attributes: ['id', 'email', 'firstName', 'lastName'], required: false }]
   });
 }
 
+// ------------------------- Helpers -------------------------
+async function resolveAccountIdFromEmail(email) {
+  if (!email) return null;
+  const account = await db.Account.findOne({ where: { email } });
+  return account ? account.id : null;
+}
+
 // ------------------------- Create -------------------------
+/**
+ * params expected:
+ *  { accountId?, employeeEmail?, type, items, quantity, status? }
+ */
 async function create(params) {
-  // validate accountId
-  if (!params.accountId) throw 'accountId is required';
-  const account = await db.Account.findByPk(params.accountId);
-  if (!account) throw 'Related account not found for given accountId';
+  // resolve accountId if not provided
+  let accountId = params.accountId ?? null;
+  if (!accountId && params.employeeEmail) {
+    accountId = await resolveAccountIdFromEmail(params.employeeEmail);
+  }
+
+  if (!accountId) throw 'accountId is required';
 
   // validate type
-  const allowedTypes = ['equipment', 'leave', 'resources'];
-  if (!allowedTypes.includes((params.type || '').toString())) {
+  if (!ALLOWED_TYPES.includes((params.type || '').toString())) {
     throw 'Invalid request type';
   }
 
-  // validate status
-  const allowedStatus = ['pending', 'approved', 'disapproved', 'rejected'];
-  if (params.status && !allowedStatus.includes(params.status)) {
+  // validate items and quantity
+  if (!params.items || String(params.items).trim() === '') {
+    throw 'items is required';
+  }
+
+  const qty = Number(params.quantity);
+  if (!Number.isFinite(qty) || qty < 1) {
+    throw 'quantity must be an integer >= 1';
+  }
+
+  // validate status if present
+  if (params.status && !ALLOWED_STATUS.includes(params.status)) {
     throw 'Invalid status';
   }
 
   const r = await db.Request.create({
-    accountId: params.accountId,
+    accountId,
     type: params.type,
-    items: params.items,
+    items: String(params.items).trim(),
+    quantity: Math.trunc(qty),
     status: params.status || 'pending',
     created: new Date()
   });
 
-  return await getById(r.id);
+  const pk = r.requestId ?? r.id ?? null;
+  return await getById(pk);
 }
 
 // ------------------------- Update -------------------------
-async function update(id, params) {
-  const request = await db.Request.findByPk(id);
+/**
+ * update(requestId, params)
+ * allowed fields to update: accountId, type, items, quantity, status
+ */
+async function update(requestId, params) {
+  const request = await db.Request.findByPk(requestId);
   if (!request) throw 'Request not found';
 
-  // if changing accountId, validate target account exists
+  // If employeeEmail provided and accountId not, try to resolve
+  if (!params.accountId && params.employeeEmail) {
+    const resolved = await resolveAccountIdFromEmail(params.employeeEmail);
+    if (resolved) params.accountId = resolved;
+  }
+
+  // If changing accountId, validate account exists
   if (params.accountId && params.accountId !== request.accountId) {
     const account = await db.Account.findByPk(params.accountId);
     if (!account) throw 'Related account not found for new accountId';
   }
 
-  // validate type/status
-  const allowedTypes = ['equipment', 'leave', 'resources'];
-  const allowedStatus = ['pending', 'approved', 'disapproved', 'rejected'];
+  // validate type/status if present
+  if (params.type && !ALLOWED_TYPES.includes(params.type)) throw 'Invalid request type';
+  if (params.status && !ALLOWED_STATUS.includes(params.status)) throw 'Invalid status';
 
-  if (params.type && !allowedTypes.includes(params.type)) throw 'Invalid request type';
-  if (params.status && !allowedStatus.includes(params.status)) throw 'Invalid status';
+  // validate items/quantity if provided
+  if (Object.prototype.hasOwnProperty.call(params, 'items')) {
+    if (!params.items || String(params.items).trim() === '') {
+      throw 'items cannot be empty';
+    }
+    request.items = String(params.items).trim();
+  }
 
-  // copy only allowed fields
-  const allowed = ['accountId', 'type', 'items', 'status'];
+  if (Object.prototype.hasOwnProperty.call(params, 'quantity')) {
+    const qty = Number(params.quantity);
+    if (!Number.isFinite(qty) || qty < 1) throw 'quantity must be an integer >= 1';
+    request.quantity = Math.trunc(qty);
+  }
+
+  // copy other allowed fields
+  const allowed = ['accountId', 'type', 'status'];
   for (const f of allowed) {
     if (Object.prototype.hasOwnProperty.call(params, f)) {
       request[f] = params[f];
@@ -3608,12 +3797,14 @@ async function update(id, params) {
 
   request.updated = new Date();
   await request.save();
-  return await getById(request.id);
+
+  const pk = request.requestId ?? request.id ?? null;
+  return await getById(pk);
 }
 
 // ------------------------- Delete -------------------------
-async function _delete(id) {
-  const r = await db.Request.findByPk(id);
+async function _delete(requestId) {
+  const r = await db.Request.findByPk(requestId);
   if (!r) throw 'Request not found';
   await r.destroy();
 }
@@ -3621,9 +3812,10 @@ async function _delete(id) {
 
 ================================================================================
 File: server.js
-Size: 1.42 kB
+Size: 1.45 kB
 ================================================================================
 
+// server.js
 require('rootpath')();
 const express = require('express');
 const app = express();
@@ -3644,12 +3836,12 @@ app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: 
 const accountRoutes = require('./accounts/accounts.controller');
 const employeeRoutes = require('./employees/employee.controller');
 const departmentRoutes = require('./departments');
-const requestRoutes = require('./requests/request.controller');
 
+// IMPORTANT: require the requests **router** (./requests) — not the controller file
+// This will load requests/index.js which should export an Express router.
+const requestRoutes = require('./requests'); // <- corrected
 
-// If you plan to expose refresh tokens via API, add a controller for it
-// const refreshTokenRoutes = require('./accounts/refresh-tokens.controller');
-
+// mount routes
 app.use('/accounts', accountRoutes);
 app.use('/employees', employeeRoutes);
 app.use('/departments', departmentRoutes);
@@ -4359,171 +4551,34 @@ components:
 
 ================================================================================
 File: workflows\workflow.controller.js
-Size: 1.52 kB
+Size: 0 B
 ================================================================================
 
-const express = require('express');
-const router = express.Router();
-const db = require('../_helpers/db');
-const Workflow = db.Workflow;
-const Employee = db.Employee;
-
-/**
- * Get all workflows
- */
-router.get('/', async (req, res, next) => {
-  try {
-    const workflows = await Workflow.findAll({
-      include: [{ model: Employee, attributes: ['EmployeeID', 'position'] }],
-      order: [['createdAt', 'DESC']]
-    });
-    res.json(workflows);
-  } catch (err) {
-    console.error('Error in getAll workflows:', err);
-    next(err);
-  }
-});
-
-/**
- * Get workflows by employee
- */
-router.get('/:employeeId', async (req, res, next) => {
-  try {
-    const workflows = await Workflow.findAll({
-      where: { employeeId: req.params.employeeId },
-      include: [{ model: Employee, attributes: ['EmployeeID', 'position'] }],
-      order: [['createdAt', 'DESC']]
-    });
-    res.json(workflows);
-  } catch (err) {
-    console.error('Error in getByEmployee:', err);
-    next(err);
-  }
-});
-
-/**
- * Update workflow status
- */
-router.put('/:workflowId/status', async (req, res, next) => {
-  try {
-    const workflow = await Workflow.findByPk(req.params.workflowId);
-    if (!workflow) return res.status(404).json({ message: 'Workflow not found' });
-
-    workflow.status = req.body.status || workflow.status;
-    await workflow.save();
-
-    res.json(workflow);
-  } catch (err) {
-    console.error('Error in updateStatus:', err);
-    next(err);
-  }
-});
-
-module.exports = router;
 
 
 ================================================================================
 File: workflows\workflow.model.js
-Size: 650 B
+Size: 0 B
 ================================================================================
 
-// src/workflows/workflow.model.js
-module.exports = (sequelize, DataTypes) => {
-  return sequelize.define('Workflow', {
-    id: {
-      type: DataTypes.INTEGER,
-      autoIncrement: true,
-      primaryKey: true
-    },
-    employeeId: {
-      type: DataTypes.STRING,
-      allowNull: false
-    },
-    type: {
-      type: DataTypes.STRING,
-      allowNull: false
-    },
-    details: {
-      type: DataTypes.STRING,
-      allowNull: false
-    },
-    status: {
-      type: DataTypes.ENUM('Pending', 'Approved', 'Rejected'),
-      defaultValue: 'Pending'
-    }
-  }, {
-    tableName: 'Workflows',
-    timestamps: true
-  });
-};
 
 
 ================================================================================
 File: workflows\workflow.service.js
-Size: 1.15 kB
+Size: 0 B
 ================================================================================
 
-const db = require('../_helpers/db');
-
-/**
- * Create a workflow for an employee
- */
-async function createWorkflow(employeeId, type, details, status = 'Pending') {
-  const Workflow = db.Workflow;  // <-- get it here, after db init
-  if (!Workflow) throw new Error('Workflow model is not loaded');
-  
-  return await Workflow.create({
-    employeeId,
-    type,
-    details,
-    status
-  });
-}
-
-/**
- * Get all workflows for an employee
- */
-async function getByEmployee(employeeId) {
-  const Workflow = db.Workflow;
-  const Employee = db.Employee;
-
-  return await Workflow.findAll({
-    where: { employeeId },
-    include: [
-      { model: Employee, attributes: ['EmployeeID', 'position'] }
-    ],
-    order: [['createdAt', 'DESC']]
-  });
-}
-
-/**
- * Update workflow status
- */
-async function updateStatus(workflowId, status) {
-  const Workflow = db.Workflow;
-  const workflow = await Workflow.findByPk(workflowId);
-  if (!workflow) throw new Error('Workflow not found');
-
-  workflow.status = status;
-  return await workflow.save();
-}
-
-module.exports = {
-  createWorkflow,
-  getByEmployee,
-  updateStatus
-};
 
 
 ================================================================================
 File: _helpers\db.js
-Size: 3.16 kB
+Size: 2.78 kB
 ================================================================================
 
 // src/_helpers/db.js
 const config = require('config.json');
 const mysql = require('mysql2/promise');
-const { Sequelize, DataTypes } = require('sequelize');
+const { Sequelize } = require('sequelize');
 
 module.exports = db = {
   sequelize: null,
@@ -4557,19 +4612,18 @@ async function initialize() {
     port,
     dialect: 'mysql',
     logging: msg => console.debug('[sequelize]', msg),
-    define: { timestamps: false }, // default off, models can override
+    define: { timestamps: false }, // disable default createdAt/updatedAt
     pool: { max: 10, min: 0, acquire: 30000, idle: 10000 }
   });
 
   db.sequelize = sequelize;
 
   // 3) Import models
-  db.Account      = require('../accounts/account.model.js')(sequelize, DataTypes);
-  db.RefreshToken = require('../accounts/refresh-token.model.js')(sequelize, DataTypes);
-  db.Employee     = require('../employees/employee.model.js')(sequelize, DataTypes);
-  db.Department   = require('../departments/department.model.js')(sequelize, DataTypes);
-  db.Request      = require('../requests/request.model.js')(sequelize, DataTypes);
-  db.Workflow     = require('../workflows/workflow.model.js')(sequelize, DataTypes); // ✅ fixed
+  db.Account = require('../accounts/account.model.js')(sequelize);
+  db.RefreshToken = require('../accounts/refresh-token.model.js')(sequelize);
+  db.Employee = require('../employees/employee.model.js')(sequelize);
+  db.Department = require('../departments/department.model.js')(sequelize);
+  db.Request = require('../requests/request.model.js')(sequelize);
 
   // 4) Define associations
 
@@ -4589,14 +4643,10 @@ async function initialize() {
   db.Account.hasMany(db.Request, { foreignKey: 'accountId', onDelete: 'CASCADE' });
   db.Request.belongsTo(db.Account, { foreignKey: 'accountId' });
 
-  // Employee ↔ Workflow (1 → many)
-  db.Employee.hasMany(db.Workflow, { foreignKey: 'employeeId', onDelete: 'CASCADE' });
-  db.Workflow.belongsTo(db.Employee, { foreignKey: 'employeeId' });
-
   // 5) Sync DB schema
   try {
     console.info('[DB] Syncing models to database (alter=true).');
-    await sequelize.sync();
+    await sequelize.sync(); 
     console.info('[DB] Sequelize sync completed.');
   } catch (syncErr) {
     console.error('[DB] Sequelize sync failed:', syncErr);

@@ -16,7 +16,7 @@ async function getAll() {
   return await db.Employee.findAll({
     include: [
       { model: db.Account, as: 'Account' },
-      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName'] }
+      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] }
     ],
     order: [['created', 'DESC']]
   });
@@ -26,7 +26,7 @@ async function getById(id) {
   return await db.Employee.findByPk(id, {
     include: [
       { model: db.Account, as: 'Account' },
-      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName'] }
+      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] }
     ]
   });
 }
@@ -68,38 +68,43 @@ async function create(params) {
   const base = {
     accountId: account.id,
     position: params.position || null,
-    departmentId: params.departmentId || null, // ✅ correct field
+    departmentId: params.departmentId || null,
     hireDate: params.hireDate || null,
     status,
     created: new Date()
   };
 
+  let employee;
+
   if (params.EmployeeID) {
     if (await db.Employee.findByPk(params.EmployeeID)) {
       throw `EmployeeID ${params.EmployeeID} already exists`;
     }
-    const employee = new db.Employee({ ...base, EmployeeID: params.EmployeeID });
+    employee = new db.Employee({ ...base, EmployeeID: params.EmployeeID });
     await employee.save();
-    return await getById(params.EmployeeID);
-  }
-
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    const candidateId = await generateNextEmployeeID();
-    try {
-      const employee = new db.Employee({ ...base, EmployeeID: candidateId });
-      await employee.save();
-      return await getById(candidateId);
-    } catch (err) {
-      const msg = (err && err.message ? err.message.toLowerCase() : '');
-      const uniqueError =
-        msg.includes('unique') ||
-        msg.includes('duplicate') ||
-        err.name === 'SequelizeUniqueConstraintError';
-      if (uniqueError && attempt < 5) continue;
-      throw err;
+  } else {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const candidateId = await generateNextEmployeeID();
+      try {
+        employee = new db.Employee({ ...base, EmployeeID: candidateId });
+        await employee.save();
+        break;
+      } catch (err) {
+        const msg = (err && err.message ? err.message.toLowerCase() : '');
+        const uniqueError =
+          msg.includes('unique') ||
+          msg.includes('duplicate') ||
+          err.name === 'SequelizeUniqueConstraintError';
+        if (uniqueError && attempt < 5) continue;
+        throw err;
+      }
     }
   }
-  throw 'Failed to generate unique EmployeeID after multiple attempts';
+
+  // ✅ update department employeeCounts
+  if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
+
+  return await getById(employee.EmployeeID);
 }
 
 // ====== UPDATE ======
@@ -107,6 +112,8 @@ async function create(params) {
 async function update(id, params) {
   const employee = await db.Employee.findByPk(id);
   if (!employee) throw 'Employee not found';
+
+  const oldDept = employee.departmentId;
 
   if (params.accountId && params.accountId !== employee.accountId) {
     const account = await db.Account.findByPk(params.accountId);
@@ -126,8 +133,16 @@ async function update(id, params) {
     }
   }
 
-  employee.updated = new Date();
   await employee.save();
+
+  // ✅ update department counts
+  if (params.departmentId && params.departmentId !== oldDept) {
+    if (oldDept) await updateDepartmentCount(oldDept);
+    if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
+  } else if (params.departmentId) {
+    await updateDepartmentCount(employee.departmentId);
+  }
+
   return await getById(employee.EmployeeID);
 }
 
@@ -136,5 +151,21 @@ async function update(id, params) {
 async function _delete(id) {
   const employee = await db.Employee.findByPk(id);
   if (!employee) throw 'Employee not found';
+
+  const deptId = employee.departmentId;
   await employee.destroy();
+
+  // ✅ update department count
+  if (deptId) await updateDepartmentCount(deptId);
+}
+
+// ====== HELPER ======
+
+async function updateDepartmentCount(departmentId) {
+  if (!departmentId) return;
+  const count = await db.Employee.count({ where: { departmentId } });
+  await db.Department.update(
+    { employeeCounts: count },
+    { where: { id: departmentId } }
+  );
 }

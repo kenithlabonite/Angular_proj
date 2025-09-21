@@ -1,4 +1,4 @@
-// models/employee.model.js
+// employees/employee.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
@@ -28,7 +28,7 @@ module.exports = (sequelize) => {
       allowNull: true
     },
 
-    // ✅ Correct foreign key mapping
+    // ✅ foreign key to departments.id
     departmentId: {
       type: DataTypes.INTEGER.UNSIGNED,
       allowNull: true,
@@ -84,7 +84,7 @@ module.exports = (sequelize) => {
     }
     if (models.Department) {
       Employee.belongsTo(models.Department, {
-        foreignKey: 'departmentId', // Sequelize alias → maps to DepartmentID
+        foreignKey: 'departmentId',
         targetKey: 'id',
         as: 'Department'
       });

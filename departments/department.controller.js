@@ -1,5 +1,12 @@
 const service = require('./department.service');
 
+module.exports = { 
+  getAll, 
+  getById, 
+  create, 
+  update, 
+  delete: _delete };
+
 async function getAll(req, res, next) {
   try {
     const depts = await service.getAll();
@@ -36,4 +43,4 @@ async function _delete(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { getAll, getById, create, update, delete: _delete };
+

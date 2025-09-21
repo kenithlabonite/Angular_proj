@@ -1,68 +1,88 @@
 // requests/request.controller.js
-const express = require('express');
-const router = express.Router();
 const Joi = require('joi');
 const validateRequest = require('_middleware/validate-request');
-const authorize = require('_middleware/authorize'); // optional use
 const requestService = require('./request.service');
 
-// routes
-router.get('/', /* authorize(), */ getAll);
-router.get('/:id', /* authorize(), */ getById);
-router.post('/', /* authorize(), */ createSchema, create);
-router.put('/:id', /* authorize(), */ updateSchema, update);
-router.delete('/:id', /* authorize(), */ _delete);
+module.exports = {
+  getAll,
+  getById,
+  createSchema,
+  create,
+  updateSchema,
+  update,
+  delete: _delete
+};
 
-module.exports = router;
-
-/* Handlers + Schemas */
-
-function getAll(req, res, next) {
-  requestService.getAll()
-    .then(requests => res.json(requests))
-    .catch(next);
-}
-
-function getById(req, res, next) {
-  requestService.getById(req.params.id)
-    .then(r => r ? res.json(r) : res.sendStatus(404))
-    .catch(next);
-}
+// ------------------ Schemas ------------------
 
 function createSchema(req, res, next) {
   const schema = Joi.object({
+    accountId: Joi.number().required(),
+    employeeEmail: Joi.string().email().optional(),
     type: Joi.string().valid('equipment', 'leave', 'resources').required(),
-    employeeEmail: Joi.string().email().required(),
-    items: Joi.string().required(),
-    status: Joi.string().valid('pending', 'approved', 'disapproved').optional()
+    items: Joi.string().trim().min(1).required(),
+    quantity: Joi.number().integer().min(1).required(),
+    status: Joi.string().valid('pending', 'approved', 'disapproved', 'rejected').optional()
   });
   validateRequest(req, next, schema);
-}
-
-function create(req, res, next) {
-  requestService.create(req.body)
-    .then(r => res.json(r))
-    .catch(next);
 }
 
 function updateSchema(req, res, next) {
   const schema = Joi.object({
-    type: Joi.string().valid('equipment', 'leave', 'resources').optional(),
+    accountId: Joi.number().optional(),
     employeeEmail: Joi.string().email().optional(),
-    items: Joi.string().optional(),
-    status: Joi.string().valid('pending', 'approved', 'disapproved').optional()
+    type: Joi.string().valid('equipment', 'leave', 'resources').optional(),
+    items: Joi.string().trim().min(1).optional(),
+    quantity: Joi.number().integer().min(1).optional(),
+    status: Joi.string().valid('pending', 'approved', 'disapproved', 'rejected').optional()
   });
   validateRequest(req, next, schema);
 }
 
-function update(req, res, next) {
-  requestService.update(req.params.id, req.body)
-    .then(r => res.json(r))
-    .catch(next);
+// ------------------ Handlers ------------------
+
+async function getAll(req, res, next) {
+  try {
+    const list = await requestService.getAll();
+    res.json(list);
+  } catch (err) {
+    next(err);
+  }
 }
 
-function _delete(req, res, next) {
-  requestService.delete(req.params.id)
-    .then(() => res.json({ message: 'Request deleted successfully' }))
-    .catch(next);
+async function getById(req, res, next) {
+  try {
+    const r = await requestService.getById(req.params.requestId);
+    if (!r) return res.sendStatus(404);
+    res.json(r);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function create(req, res, next) {
+  try {
+    const created = await requestService.create(req.body);
+    res.status(201).json(created);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function update(req, res, next) {
+  try {
+    const updated = await requestService.update(req.params.requestId, req.body);
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function _delete(req, res, next) {
+  try {
+    await requestService.delete(req.params.requestId);
+    res.json({ message: 'Request deleted successfully' });
+  } catch (err) {
+    next(err);
+  }
 }

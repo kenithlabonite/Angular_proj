@@ -3,7 +3,7 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
   const attributes = {
-    id: {
+    requestId: {
       type: DataTypes.INTEGER.UNSIGNED,
       autoIncrement: true,
       primaryKey: true
@@ -12,7 +12,7 @@ module.exports = (sequelize) => {
       type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: {
-        model: 'accounts', // foreign key to accounts.id
+        model: 'accounts',
         key: 'id'
       },
       onUpdate: 'CASCADE',
@@ -23,8 +23,13 @@ module.exports = (sequelize) => {
       allowNull: false
     },
     items: {
-      type: DataTypes.TEXT, // more flexible than STRING if you store JSON
+      type: DataTypes.STRING(255), // item name
       allowNull: false
+    },
+    quantity: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
+      defaultValue: 1
     },
     status: {
       type: DataTypes.ENUM('pending', 'approved', 'disapproved', 'rejected'),
@@ -47,5 +52,17 @@ module.exports = (sequelize) => {
     timestamps: false
   };
 
-  return sequelize.define('Request', attributes, options);
+  const Request = sequelize.define('Request', attributes, options);
+
+  Request.associate = (models) => {
+    if (models.Account) {
+      Request.belongsTo(models.Account, {
+        foreignKey: 'accountId',
+        targetKey: 'id',
+        as: 'Account'
+      });
+    }
+  };
+
+  return Request;
 };
