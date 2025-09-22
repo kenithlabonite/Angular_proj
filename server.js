@@ -29,6 +29,8 @@ app.use('/accounts', accountRoutes);
 app.use('/employees', employeeRoutes);
 app.use('/departments', departmentRoutes);
 app.use('/requests', requestRoutes);
+app.use('/workflows', require('./workflows/workflow.controller'));
+
 // app.use('/refreshtokens', refreshTokenRoutes);
 
 // global error handler

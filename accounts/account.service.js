@@ -28,10 +28,10 @@ module.exports = {
 
 async function authenticate({ email, password, ipAddress }) {
   const account = await db.Account.scope('withHash').findOne({ where: { email } });
-
-  if (!account || !account.isVerified || !(await bcrypt.compare(password, account.passwordHash))) {
-    throw 'Email or password is incorrect';
-  }
+  if (!account) throw 'Account not found';
+  if (account.status && account.status.toLowerCase() === 'inactive') throw 'This account is inactive';
+  if (!account.passwordHash) throw 'This account does not have a password set';
+  if (!(await bcrypt.compare(password, account.passwordHash))) throw 'Invalid password';
 
   const jwtToken = generateJwtToken(account);
   const refreshToken = generateRefreshToken(account, ipAddress);
@@ -103,7 +103,7 @@ async function verifyEmail({ token }) {
 
 async function forgotPassword({ email }, origin) {
   const account = await db.Account.findOne({ where: { email } });
-  if (!account) return; // always OK for security
+  if (!account) return; // always OK
 
   account.resetToken = randomTokenString();
   account.resetTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -120,8 +120,12 @@ async function validateResetToken({ token }) {
   return account;
 }
 
-async function resetPassword({ token, password }) {
+async function resetPassword({ token, password, confirmPassword }) {
   const account = await validateResetToken({ token });
+  if (!password) throw 'Password is required';
+  if (!confirmPassword) throw 'Confirm password is required';
+  if (password !== confirmPassword) throw 'Passwords do not match';
+
   account.passwordHash = await hash(password);
   account.passwordReset = Date.now();
   account.resetToken = null;
@@ -142,27 +146,31 @@ async function getById(id) {
 }
 
 async function create(params) {
+  console.log('Incoming create params:', params);
+
+  // check email
   if (await db.Account.findOne({ where: { email: params.email } })) {
     throw `Email "${params.email}" is already registered`;
   }
 
-  const account = new db.Account(params);
-  account.verified = Date.now();
-
-  if (params.password) {
-    account.passwordHash = await hash(params.password);
-  } else {
-    account.resetToken = randomTokenString();
-    account.resetTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    await account.save();
-
-    try {
-      await sendPasswordResetEmail(account, null);
-    } catch {
-      console.warn('sendPasswordResetEmail failed. Reset token:', account.resetToken);
-    }
-    return basicDetails(account);
+  // ✅ enforce password requirements
+  if (!params.password) throw 'Password is required';
+  if (!params.confirmPassword) throw 'Confirm password is required';
+  if (params.password !== params.confirmPassword) {
+    throw 'Passwords do not match';
   }
+
+  // build account
+  const account = new db.Account({
+    title: params.title,
+    firstName: params.firstName,
+    lastName: params.lastName,
+    email: params.email,
+    role: params.role,
+    status: params.status,
+    verified: Date.now(), // ✅ admin-created accounts are auto-verified
+    passwordHash: await hash(params.password)
+  });
 
   await account.save();
   return basicDetails(account);
@@ -172,35 +180,20 @@ async function update(id, params) {
   const account = await getAccount(id);
   if (!account) throw 'Account not found';
 
-  // --- Email uniqueness check ---
-  if (
-    params.email &&
-    account.email !== params.email &&
-    await db.Account.findOne({ where: { email: params.email } })
-  ) {
+  if (params.email && account.email !== params.email &&
+      await db.Account.findOne({ where: { email: params.email } })) {
     throw `Email "${params.email}" is already taken`;
   }
 
-  // --- Handle password update ---
-  if (params.password) {
-    params.passwordHash = await hash(params.password);
-    delete params.password;
-    delete params.confirmPassword;
-  }
-
-  // --- Handle status update ---
-  if (params.status) {
-    account.status = params.status;
-
-    // ✅ Only update the linked employee, not all
-    const employee = await db.Employee.findOne({ where: { accountId: account.id } });
-    if (employee) {
-      employee.status = params.status;
-      await employee.save();
+  if (params.password || params.confirmPassword) {
+    if (!params.password) throw 'Password is required';
+    if (!params.confirmPassword) throw 'Confirm password is required';
+    if (params.password !== params.confirmPassword) {
+      throw 'Passwords do not match';
     }
+    params.passwordHash = await hash(params.password);
   }
 
-  // --- Update account fields ---
   Object.assign(account, params);
   account.updated = Date.now();
   await account.save();

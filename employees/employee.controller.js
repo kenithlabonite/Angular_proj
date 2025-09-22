@@ -4,14 +4,18 @@ const router = express.Router();
 const employeeService = require('./employee.service');
 const authorize = require('_middleware/authorize');
 const Role = require('_helpers/role');
+const db = require('../_helpers/db'); // needed for direct employee lookup
 
-// Routes
+// ===== Routes =====
 router.get('/', /* authorize(Role.Admin), */ getAll);
 router.get('/next-id', /* authorize(Role.Admin), */ getNextId);
 router.get('/:id', /* authorize(Role.Admin), */ getById);
-router.post('/', /* authorize(Role.Admin), */ create);
+router.post('/', authorize(Role.Admin), create);
 router.put('/:id', /* authorize(Role.Admin), */ update);
 router.delete('/:id', /* authorize(Role.Admin), */ _delete);
+
+// 🚀 New: Transfer employee to another department
+router.post('/:id/transfer', /* authorize(Role.Admin), */ transferDepartment);
 
 module.exports = router;
 
@@ -86,6 +90,35 @@ async function _delete(req, res, next) {
     res.json({ message: 'Employee deleted successfully' });
   } catch (err) {
     console.error('Error in delete:', err);
+    next(err);
+  }
+}
+
+// ===== New Transfer Handler =====
+async function transferDepartment(req, res, next) {
+  try {
+    const employeeId = req.params.id;
+    const { toDeptId } = req.body;
+
+    if (!toDeptId) {
+      return res.status(400).json({ message: 'toDeptId is required' });
+    }
+
+    const employee = await db.Employee.findByPk(employeeId);
+    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+
+    const fromDeptId = employee.departmentId;
+    employee.departmentId = toDeptId;
+    await employee.save();
+
+    res.json({
+      message: `Employee ${employeeId} transferred successfully`,
+      fromDeptId,
+      toDeptId,
+      employee
+    });
+  } catch (err) {
+    console.error('Error in transferDepartment:', err);
     next(err);
   }
 }

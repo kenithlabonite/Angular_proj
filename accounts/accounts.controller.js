@@ -7,7 +7,7 @@ const authorize = require('_middleware/authorize');
 const Role = require('_helpers/role');
 const accountService = require('./account.service');
 
-// routes
+// -------------------- ROUTES --------------------
 router.post('/authenticate', authenticateSchema, authenticate);
 router.post('/refresh-token', refreshToken);
 router.post('/revoke-token', authorize(), revokeTokenSchema, revokeToken);
@@ -16,17 +16,16 @@ router.post('/verify-email', verifyEmailSchema, verifyEmail);
 router.post('/forgot-password', forgotPasswordSchema, forgotPassword);
 router.post('/validate-reset-token', validateResetTokenSchema, validateResetToken);
 router.post('/reset-password', resetPasswordSchema, resetPassword);
-router.get('/', /* authorize(Role.Admin), */ getAll);
+
+router.get('/', authorize(Role.Admin), getAll);
 router.get('/:id', authorize(), getById);
-router.post('/', authorize(Role.Admin), createSchema, create);
+router.post('/', /* authorize(Role.Admin), */ createSchema, create);
 router.put('/:id', authorize(), updateSchema, update);
-router.delete('/:id', /* authorize(), */ _delete);
+router.delete('/:id', authorize(), _delete);
 
 module.exports = router;
 
-/* --------------------
-   Schemas & Handlers
-   -------------------- */
+// -------------------- SCHEMAS & HANDLERS --------------------
 
 function authenticateSchema(req, res, next) {
   const schema = Joi.object({
@@ -42,20 +41,15 @@ function authenticate(req, res, next) {
 
   accountService.authenticate({ email, password, ipAddress })
     .then(result => {
-      // Defensive handling: result may be null, an account, or an object with jwtToken/refreshToken/account
       if (!result) return res.status(400).json({ message: 'Email or password is incorrect' });
 
-      // normalize
       const account = result.account || result;
       const jwtToken = result.jwtToken || (account && account.jwtToken);
       const refreshToken = result.refreshToken || (result.account && result.refreshToken);
 
       if (!account) return res.status(400).json({ message: 'Email or password is incorrect' });
-
-      // set refresh token cookie if present
       if (refreshToken) setTokenCookie(res, refreshToken);
 
-      // respond with account payload + jwtToken if present
       const response = { ...account };
       if (jwtToken) response.jwtToken = jwtToken;
 
@@ -93,11 +87,8 @@ function revokeToken(req, res, next) {
   const ipAddress = req.ip;
 
   if (!token) return res.status(400).json({ message: 'Token is required' });
-
-  // user must be set by authorize middleware
   if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
-  // users can revoke their own tokens; admins can revoke any
   const owns = typeof req.user.ownsToken === 'function' ? req.user.ownsToken(token) : false;
   if (!owns && req.user.role !== Role.Admin) {
     return res.status(401).json({ message: 'Unauthorized' });
@@ -189,8 +180,6 @@ function getAll(req, res, next) {
 
 function getById(req, res, next) {
   if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-
-  // users can get their own account and admins can get any account
   if (String(req.params.id) !== String(req.user.id) && req.user.role !== Role.Admin) {
     return res.status(401).json({ message: 'Unauthorized' });
   }
@@ -207,11 +196,12 @@ function createSchema(req, res, next) {
     lastName: Joi.string().required(),
     email: Joi.string().email().required(),
     role: Joi.string().valid(Role.Admin, Role.User).required(),
-    status: Joi.string().valid('active', 'inactive').required()
+    status: Joi.string().valid('active', 'inactive').required(),
+    password: Joi.string().min(6).required(),
+    confirmPassword: Joi.string().valid(Joi.ref('password')).required()
   });
   validateRequest(req, next, schema);
 }
-
 
 function create(req, res, next) {
   accountService.create(req.body)
@@ -220,7 +210,6 @@ function create(req, res, next) {
 }
 
 function updateSchema(req, res, next) {
-  // Always declare schemaRules first
   const schemaRules = {
     title: Joi.string().empty(''),
     firstName: Joi.string().empty(''),
@@ -230,7 +219,6 @@ function updateSchema(req, res, next) {
     confirmPassword: Joi.string().valid(Joi.ref('password')).empty('')
   };
 
-  // only admins can update role and status
   if (req.user && req.user.role === Role.Admin) {
     schemaRules.role = Joi.string().valid(Role.Admin, Role.User).empty('');
     schemaRules.status = Joi.string().valid('active', 'inactive').empty('');
@@ -242,13 +230,10 @@ function updateSchema(req, res, next) {
 
 function update(req, res, next) {
   if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-
-  // users can update their own account and admins can update any account
   if (String(req.params.id) !== String(req.user.id) && req.user.role !== Role.Admin) {
     return res.status(401).json({ message: 'Unauthorized' });
   }
 
-  // build params safely: only allow fields defined in updateSchema
   const allowedFields = ['title', 'firstName', 'lastName', 'email', 'password', 'confirmPassword'];
   if (req.user.role === Role.Admin) allowedFields.push('role', 'status');
 
@@ -268,12 +253,9 @@ function _delete(req, res, next) {
     .catch(next);
 }
 
-/* --------------------
-   Helper functions
-   -------------------- */
+// -------------------- HELPERS --------------------
 
 function setTokenCookie(res, token) {
-  // create cookie with refresh token that expires in 7 days
   const cookieOptions = {
     httpOnly: true,
     expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)

@@ -147,7 +147,7 @@ function model(sequelize) {
 
 ================================================================================
 File: accounts\account.service.js
-Size: 9.53 kB
+Size: 9.76 kB
 ================================================================================
 
 // account.service.js
@@ -180,10 +180,10 @@ module.exports = {
 
 async function authenticate({ email, password, ipAddress }) {
   const account = await db.Account.scope('withHash').findOne({ where: { email } });
-
-  if (!account || !account.isVerified || !(await bcrypt.compare(password, account.passwordHash))) {
-    throw 'Email or password is incorrect';
-  }
+  if (!account) throw 'Account not found';
+  if (account.status && account.status.toLowerCase() === 'inactive') throw 'This account is inactive';
+  if (!account.passwordHash) throw 'This account does not have a password set';
+  if (!(await bcrypt.compare(password, account.passwordHash))) throw 'Invalid password';
 
   const jwtToken = generateJwtToken(account);
   const refreshToken = generateRefreshToken(account, ipAddress);
@@ -255,7 +255,7 @@ async function verifyEmail({ token }) {
 
 async function forgotPassword({ email }, origin) {
   const account = await db.Account.findOne({ where: { email } });
-  if (!account) return; // always OK for security
+  if (!account) return; // always OK
 
   account.resetToken = randomTokenString();
   account.resetTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -272,8 +272,12 @@ async function validateResetToken({ token }) {
   return account;
 }
 
-async function resetPassword({ token, password }) {
+async function resetPassword({ token, password, confirmPassword }) {
   const account = await validateResetToken({ token });
+  if (!password) throw 'Password is required';
+  if (!confirmPassword) throw 'Confirm password is required';
+  if (password !== confirmPassword) throw 'Passwords do not match';
+
   account.passwordHash = await hash(password);
   account.passwordReset = Date.now();
   account.resetToken = null;
@@ -294,27 +298,31 @@ async function getById(id) {
 }
 
 async function create(params) {
+  console.log('Incoming create params:', params);
+
+  // check email
   if (await db.Account.findOne({ where: { email: params.email } })) {
     throw `Email "${params.email}" is already registered`;
   }
 
-  const account = new db.Account(params);
-  account.verified = Date.now();
-
-  if (params.password) {
-    account.passwordHash = await hash(params.password);
-  } else {
-    account.resetToken = randomTokenString();
-    account.resetTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    await account.save();
-
-    try {
-      await sendPasswordResetEmail(account, null);
-    } catch {
-      console.warn('sendPasswordResetEmail failed. Reset token:', account.resetToken);
-    }
-    return basicDetails(account);
+  // ✅ enforce password requirements
+  if (!params.password) throw 'Password is required';
+  if (!params.confirmPassword) throw 'Confirm password is required';
+  if (params.password !== params.confirmPassword) {
+    throw 'Passwords do not match';
   }
+
+  // build account
+  const account = new db.Account({
+    title: params.title,
+    firstName: params.firstName,
+    lastName: params.lastName,
+    email: params.email,
+    role: params.role,
+    status: params.status,
+    verified: Date.now(), // ✅ admin-created accounts are auto-verified
+    passwordHash: await hash(params.password)
+  });
 
   await account.save();
   return basicDetails(account);
@@ -324,35 +332,20 @@ async function update(id, params) {
   const account = await getAccount(id);
   if (!account) throw 'Account not found';
 
-  // --- Email uniqueness check ---
-  if (
-    params.email &&
-    account.email !== params.email &&
-    await db.Account.findOne({ where: { email: params.email } })
-  ) {
+  if (params.email && account.email !== params.email &&
+      await db.Account.findOne({ where: { email: params.email } })) {
     throw `Email "${params.email}" is already taken`;
   }
 
-  // --- Handle password update ---
-  if (params.password) {
-    params.passwordHash = await hash(params.password);
-    delete params.password;
-    delete params.confirmPassword;
-  }
-
-  // --- Handle status update ---
-  if (params.status) {
-    account.status = params.status;
-
-    // ✅ Only update the linked employee, not all
-    const employee = await db.Employee.findOne({ where: { accountId: account.id } });
-    if (employee) {
-      employee.status = params.status;
-      await employee.save();
+  if (params.password || params.confirmPassword) {
+    if (!params.password) throw 'Password is required';
+    if (!params.confirmPassword) throw 'Confirm password is required';
+    if (params.password !== params.confirmPassword) {
+      throw 'Passwords do not match';
     }
+    params.passwordHash = await hash(params.password);
   }
 
-  // --- Update account fields ---
   Object.assign(account, params);
   account.updated = Date.now();
   await account.save();
@@ -465,7 +458,7 @@ async function sendPasswordResetEmail(account, origin) {
 
 ================================================================================
 File: accounts\accounts.controller.js
-Size: 9.59 kB
+Size: 9 kB
 ================================================================================
 
 ﻿// accounts.controller.js
@@ -477,7 +470,7 @@ const authorize = require('_middleware/authorize');
 const Role = require('_helpers/role');
 const accountService = require('./account.service');
 
-// routes
+// -------------------- ROUTES --------------------
 router.post('/authenticate', authenticateSchema, authenticate);
 router.post('/refresh-token', refreshToken);
 router.post('/revoke-token', authorize(), revokeTokenSchema, revokeToken);
@@ -486,17 +479,16 @@ router.post('/verify-email', verifyEmailSchema, verifyEmail);
 router.post('/forgot-password', forgotPasswordSchema, forgotPassword);
 router.post('/validate-reset-token', validateResetTokenSchema, validateResetToken);
 router.post('/reset-password', resetPasswordSchema, resetPassword);
-router.get('/', /* authorize(Role.Admin), */ getAll);
+
+router.get('/', authorize(Role.Admin), getAll);
 router.get('/:id', authorize(), getById);
 router.post('/', authorize(Role.Admin), createSchema, create);
 router.put('/:id', authorize(), updateSchema, update);
-router.delete('/:id', /* authorize(), */ _delete);
+router.delete('/:id', authorize(), _delete);
 
 module.exports = router;
 
-/* --------------------
-   Schemas & Handlers
-   -------------------- */
+// -------------------- SCHEMAS & HANDLERS --------------------
 
 function authenticateSchema(req, res, next) {
   const schema = Joi.object({
@@ -512,20 +504,15 @@ function authenticate(req, res, next) {
 
   accountService.authenticate({ email, password, ipAddress })
     .then(result => {
-      // Defensive handling: result may be null, an account, or an object with jwtToken/refreshToken/account
       if (!result) return res.status(400).json({ message: 'Email or password is incorrect' });
 
-      // normalize
       const account = result.account || result;
       const jwtToken = result.jwtToken || (account && account.jwtToken);
       const refreshToken = result.refreshToken || (result.account && result.refreshToken);
 
       if (!account) return res.status(400).json({ message: 'Email or password is incorrect' });
-
-      // set refresh token cookie if present
       if (refreshToken) setTokenCookie(res, refreshToken);
 
-      // respond with account payload + jwtToken if present
       const response = { ...account };
       if (jwtToken) response.jwtToken = jwtToken;
 
@@ -563,11 +550,8 @@ function revokeToken(req, res, next) {
   const ipAddress = req.ip;
 
   if (!token) return res.status(400).json({ message: 'Token is required' });
-
-  // user must be set by authorize middleware
   if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
-  // users can revoke their own tokens; admins can revoke any
   const owns = typeof req.user.ownsToken === 'function' ? req.user.ownsToken(token) : false;
   if (!owns && req.user.role !== Role.Admin) {
     return res.status(401).json({ message: 'Unauthorized' });
@@ -659,8 +643,6 @@ function getAll(req, res, next) {
 
 function getById(req, res, next) {
   if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-
-  // users can get their own account and admins can get any account
   if (String(req.params.id) !== String(req.user.id) && req.user.role !== Role.Admin) {
     return res.status(401).json({ message: 'Unauthorized' });
   }
@@ -677,11 +659,12 @@ function createSchema(req, res, next) {
     lastName: Joi.string().required(),
     email: Joi.string().email().required(),
     role: Joi.string().valid(Role.Admin, Role.User).required(),
-    status: Joi.string().valid('active', 'inactive').required()
+    status: Joi.string().valid('active', 'inactive').required(),
+    password: Joi.string().min(6).required(),
+    confirmPassword: Joi.string().valid(Joi.ref('password')).required()
   });
   validateRequest(req, next, schema);
 }
-
 
 function create(req, res, next) {
   accountService.create(req.body)
@@ -690,7 +673,6 @@ function create(req, res, next) {
 }
 
 function updateSchema(req, res, next) {
-  // Always declare schemaRules first
   const schemaRules = {
     title: Joi.string().empty(''),
     firstName: Joi.string().empty(''),
@@ -700,7 +682,6 @@ function updateSchema(req, res, next) {
     confirmPassword: Joi.string().valid(Joi.ref('password')).empty('')
   };
 
-  // only admins can update role and status
   if (req.user && req.user.role === Role.Admin) {
     schemaRules.role = Joi.string().valid(Role.Admin, Role.User).empty('');
     schemaRules.status = Joi.string().valid('active', 'inactive').empty('');
@@ -712,13 +693,10 @@ function updateSchema(req, res, next) {
 
 function update(req, res, next) {
   if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-
-  // users can update their own account and admins can update any account
   if (String(req.params.id) !== String(req.user.id) && req.user.role !== Role.Admin) {
     return res.status(401).json({ message: 'Unauthorized' });
   }
 
-  // build params safely: only allow fields defined in updateSchema
   const allowedFields = ['title', 'firstName', 'lastName', 'email', 'password', 'confirmPassword'];
   if (req.user.role === Role.Admin) allowedFields.push('role', 'status');
 
@@ -738,12 +716,9 @@ function _delete(req, res, next) {
     .catch(next);
 }
 
-/* --------------------
-   Helper functions
-   -------------------- */
+// -------------------- HELPERS --------------------
 
 function setTokenCookie(res, token) {
-  // create cookie with refresh token that expires in 7 days
   const cookieOptions = {
     httpOnly: true,
     expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
@@ -2803,7 +2778,7 @@ function validateRequest(req, next, schema) {
 
 ================================================================================
 File: config.json
-Size: 532 B
+Size: 536 B
 ================================================================================
 
 {
@@ -2820,8 +2795,8 @@ Size: 532 B
         "host": "smtp.ethereal.email",
         "port": 587,
         "auth": {
-            "user": "chaya.terry@ethereal.email",
-            "pass": "PQs5atC3T4ChgWAggB"
+            "user": "shyanne.hills25@ethereal.email",
+            "pass": "QkMGGHJaq2WcpKHME6"
         }
     }
 }
@@ -3043,7 +3018,7 @@ module.exports = router;
 
 ================================================================================
 File: employees\employee.controller.js
-Size: 2.5 kB
+Size: 3.48 kB
 ================================================================================
 
 // employees/employees.controller.js
@@ -3052,14 +3027,18 @@ const router = express.Router();
 const employeeService = require('./employee.service');
 const authorize = require('_middleware/authorize');
 const Role = require('_helpers/role');
+const db = require('../_helpers/db'); // needed for direct employee lookup
 
-// Routes
+// ===== Routes =====
 router.get('/', /* authorize(Role.Admin), */ getAll);
-router.get('/next-id', /* authorize(Role.Admin), */ getNextId);
-router.get('/:id', /* authorize(Role.Admin), */ getById);
-router.post('/', /* authorize(Role.Admin), */ create);
-router.put('/:id', /* authorize(Role.Admin), */ update);
-router.delete('/:id', /* authorize(Role.Admin), */ _delete);
+router.get('/next-id', authorize(Role.Admin), getNextId);
+router.get('/:id', authorize(Role.Admin), getById);
+router.post('/', authorize(Role.Admin), create);
+router.put('/:id', authorize(Role.Admin), update);
+router.delete('/:id', authorize(Role.Admin), _delete);
+
+// 🚀 New: Transfer employee to another department
+router.post('/:id/transfer', /* authorize(Role.Admin), */ transferDepartment);
 
 module.exports = router;
 
@@ -3134,6 +3113,35 @@ async function _delete(req, res, next) {
     res.json({ message: 'Employee deleted successfully' });
   } catch (err) {
     console.error('Error in delete:', err);
+    next(err);
+  }
+}
+
+// ===== New Transfer Handler =====
+async function transferDepartment(req, res, next) {
+  try {
+    const employeeId = req.params.id;
+    const { toDeptId } = req.body;
+
+    if (!toDeptId) {
+      return res.status(400).json({ message: 'toDeptId is required' });
+    }
+
+    const employee = await db.Employee.findByPk(employeeId);
+    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+
+    const fromDeptId = employee.departmentId;
+    employee.departmentId = toDeptId;
+    await employee.save();
+
+    res.json({
+      message: `Employee ${employeeId} transferred successfully`,
+      fromDeptId,
+      toDeptId,
+      employee
+    });
+  } catch (err) {
+    console.error('Error in transferDepartment:', err);
     next(err);
   }
 }
@@ -3812,7 +3820,7 @@ async function _delete(requestId) {
 
 ================================================================================
 File: server.js
-Size: 1.45 kB
+Size: 1.52 kB
 ================================================================================
 
 // server.js
@@ -3846,6 +3854,8 @@ app.use('/accounts', accountRoutes);
 app.use('/employees', employeeRoutes);
 app.use('/departments', departmentRoutes);
 app.use('/requests', requestRoutes);
+app.use('/workflows', require('./workflows/workflow.controller'));
+
 // app.use('/refreshtokens', refreshTokenRoutes);
 
 // global error handler
@@ -4551,28 +4561,176 @@ components:
 
 ================================================================================
 File: workflows\workflow.controller.js
-Size: 0 B
+Size: 1.48 kB
 ================================================================================
 
+const express = require('express');
+const router = express.Router();
+const workflowService = require('./workflow.service');
+
+// Create a new workflow
+router.post('/', async (req, res, next) => {
+  try {
+    const workflow = await workflowService.create(req.body);
+    res.status(201).json(workflow);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get all workflows
+router.get('/', async (req, res, next) => {
+  try {
+    const workflows = await workflowService.getAll();
+    res.json(workflows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get workflow by id
+router.get('/:id', async (req, res, next) => {
+  try {
+    const workflow = await workflowService.getById(req.params.id);
+    res.json(workflow);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Update workflow
+router.put('/:id', async (req, res, next) => {
+  try {
+    const workflow = await workflowService.update(req.params.id, req.body);
+    res.json(workflow);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Approve workflow
+router.put('/:id/approve', async (req, res, next) => {
+  try {
+    const workflow = await workflowService.approve(req.params.id);
+    res.json(workflow);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Reject workflow
+router.put('/:id/reject', async (req, res, next) => {
+  try {
+    const workflow = await workflowService.reject(req.params.id);
+    res.json(workflow);
+  } catch (err) {
+    next(err);
+  }
+});
+
+module.exports = router;
 
 
 ================================================================================
 File: workflows\workflow.model.js
-Size: 0 B
+Size: 827 B
 ================================================================================
 
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+  const Workflow = sequelize.define('Workflow', {
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true
+    },
+    employeeId: {
+      type: DataTypes.STRING(50),
+      allowNull: false
+    },
+    type: {
+      type: DataTypes.STRING(50),
+      allowNull: false,
+      defaultValue: 'transfer'
+    },
+    details: {
+      type: DataTypes.TEXT, // allow JSON string with fromDeptId/toDeptId/etc.
+      allowNull: false
+    },
+    status: {
+      type: DataTypes.ENUM('pending', 'approved', 'rejected'),
+      allowNull: false,
+      defaultValue: 'pending'
+    }
+  }, {
+    tableName: 'Workflows',
+    timestamps: true // adds createdAt & updatedAt
+  });
+
+  return Workflow;
+};
 
 
 ================================================================================
 File: workflows\workflow.service.js
-Size: 0 B
+Size: 983 B
 ================================================================================
 
+const db = require('../_helpers/db');
+
+async function create(params) {
+  return await db.Workflow.create(params);
+}
+
+async function getAll() {
+  return await db.Workflow.findAll();
+}
+
+async function getById(id) {
+  return await getWorkflow(id);
+}
+
+async function update(id, params) {
+  const workflow = await getWorkflow(id);
+  Object.assign(workflow, params);
+  await workflow.save();
+  return workflow;
+}
+
+async function approve(id) {
+  const workflow = await getWorkflow(id);
+  workflow.status = 'approved';
+  await workflow.save();
+  return workflow;
+}
+
+async function reject(id) {
+  const workflow = await getWorkflow(id);
+  workflow.status = 'rejected';
+  await workflow.save();
+  return workflow;
+}
+
+async function getWorkflow(id) {
+  const wf = await db.Workflow.findByPk(id);
+  if (!wf) throw new Error('Workflow not found');
+  return wf;
+}
+
+module.exports = {
+  create,
+  getAll,
+  getById,
+  update,
+  approve,
+  reject
+};
 
 
 ================================================================================
 File: _helpers\db.js
-Size: 2.78 kB
+Size: 2.85 kB
 ================================================================================
 
 // src/_helpers/db.js
@@ -4624,6 +4782,8 @@ async function initialize() {
   db.Employee = require('../employees/employee.model.js')(sequelize);
   db.Department = require('../departments/department.model.js')(sequelize);
   db.Request = require('../requests/request.model.js')(sequelize);
+  db.Workflow = require('../workflows/workflow.model')(sequelize);
+
 
   // 4) Define associations
 
@@ -4667,18 +4827,69 @@ module.exports = {
 
 ================================================================================
 File: _helpers\send-email.js
-Size: 324 B
+Size: 2.24 kB
 ================================================================================
 
+// _helpers/send-email.js
 const nodemailer = require('nodemailer');
 const config = require('config.json');
 
 module.exports = sendEmail;
 
 async function sendEmail({ to, subject, html, from = config.emailFrom }) {
-  const transporter = nodemailer.createTransport(config.smtpOptions);
-  await transporter.sendMail({ from, to, subject, html });
+  let transporter;
+  let usedTestAccount = false;
+
+  // Try to use configured SMTP options first (if present)
+  if (config && config.smtpOptions && config.smtpOptions.host) {
+    try {
+      transporter = nodemailer.createTransport(config.smtpOptions);
+      // verify() will throw if auth or connection fails
+      await transporter.verify();
+      console.log('SMTP transporter verified using config.smtpOptions.');
+    } catch (err) {
+      console.error('Configured SMTP verify failed:', err && err.message ? err.message : err);
+      transporter = null;
+    }
+  }
+
+  // If we don't have a working transporter from config, create a test account
+  if (!transporter) {
+    try {
+      const testAccount = await nodemailer.createTestAccount();
+      transporter = nodemailer.createTransport({
+        host: testAccount.smtp.host,
+        port: testAccount.smtp.port,
+        secure: testAccount.smtp.secure,
+        auth: { user: testAccount.user, pass: testAccount.pass }
+      });
+      usedTestAccount = true;
+      console.log('Using nodemailer test account:', testAccount.user);
+    } catch (err) {
+      console.error('Failed to create nodemailer test account:', err && err.message ? err.message : err);
+      // If we can't create a test account either, fail gracefully by returning null
+      return null;
+    }
+  }
+
+  // Try to send the message
+  try {
+    const info = await transporter.sendMail({ from, to, subject, html });
+    console.log('Email send attempted. messageId:', info && info.messageId ? info.messageId : 'none');
+
+    if (usedTestAccount && nodemailer.getTestMessageUrl) {
+      const previewUrl = nodemailer.getTestMessageUrl(info);
+      if (previewUrl) console.log('Preview URL (open in browser):', previewUrl);
+    }
+
+    return info;
+  } catch (err) {
+    console.error('Failed to send email:', err && err.message ? err.message : err);
+    // Don't throw — return null so registration can continue while you debug.
+    return null;
+  }
 }
+
 
 ================================================================================
 File: _helpers\swagger.js

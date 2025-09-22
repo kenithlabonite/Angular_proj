@@ -47,6 +47,8 @@ async function initialize() {
   db.Employee = require('../employees/employee.model.js')(sequelize);
   db.Department = require('../departments/department.model.js')(sequelize);
   db.Request = require('../requests/request.model.js')(sequelize);
+  db.Workflow = require('../workflows/workflow.model')(sequelize);
+
 
   // 4) Define associations
 
