@@ -68,6 +68,9 @@ async function initialize() {
   db.Account.hasMany(db.Request, { foreignKey: 'accountId', onDelete: 'CASCADE' });
   db.Request.belongsTo(db.Account, { foreignKey: 'accountId' });
 
+  db.Employee.hasMany(db.Workflow, { foreignKey: 'employeeId', sourceKey: 'EmployeeID', onDelete: 'CASCADE' });
+  db.Workflow.belongsTo(db.Employee, { foreignKey: 'employeeId', targetKey: 'EmployeeID' });
+
   // 5) Sync DB schema
   try {
     console.info('[DB] Syncing models to database (alter=true).');

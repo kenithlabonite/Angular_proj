@@ -10,11 +10,9 @@ const db = require('../_helpers/db'); // needed for direct employee lookup
 router.get('/', /* authorize(Role.Admin), */ getAll);
 router.get('/next-id', /* authorize(Role.Admin), */ getNextId);
 router.get('/:id', /* authorize(Role.Admin), */ getById);
-router.post('/', authorize(Role.Admin), create);
+router.post('/', /* authorize(Role.Admin), */ create);
 router.put('/:id', /* authorize(Role.Admin), */ update);
 router.delete('/:id', /* authorize(Role.Admin), */ _delete);
-
-// 🚀 New: Transfer employee to another department
 router.post('/:id/transfer', /* authorize(Role.Admin), */ transferDepartment);
 
 module.exports = router;

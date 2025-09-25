@@ -1,3 +1,4 @@
+// workflows/workflow.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
@@ -9,19 +10,20 @@ module.exports = (sequelize) => {
     },
     employeeId: {
       type: DataTypes.STRING(50),
-      allowNull: false
+      allowNull: false,
+      references: { model: 'Employees', key: 'EmployeeID' }, // FK link
+      onDelete: 'CASCADE'
     },
     type: {
       type: DataTypes.STRING(50),
-      allowNull: false,
-      defaultValue: 'transfer'
+      allowNull: false
     },
     details: {
-      type: DataTypes.TEXT, // allow JSON string with fromDeptId/toDeptId/etc.
+      type: DataTypes.JSON, // store structured info (dept transfer, changes, etc.)
       allowNull: false
     },
     status: {
-      type: DataTypes.ENUM('pending', 'approved', 'rejected'),
+      type: DataTypes.ENUM('pending', 'approved', 'rejected', 'completed'),
       allowNull: false,
       defaultValue: 'pending'
     }

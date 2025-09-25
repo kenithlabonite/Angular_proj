@@ -10,13 +10,15 @@ module.exports = {
   generateNextEmployeeID
 };
 
-// ====== QUERIES ======
+const ALLOWED_STATUS = ['active', 'inactive'];
 
+// ====== QUERIES ======
 async function getAll() {
   return await db.Employee.findAll({
     include: [
       { model: db.Account, as: 'Account' },
-      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] }
+      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] },
+      { model: db.Workflow }
     ],
     order: [['created', 'DESC']]
   });
@@ -26,7 +28,8 @@ async function getById(id) {
   return await db.Employee.findByPk(id, {
     include: [
       { model: db.Account, as: 'Account' },
-      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] }
+      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] },
+      { model: db.Workflow }
     ]
   });
 }
@@ -43,7 +46,6 @@ async function generateNextEmployeeID() {
 }
 
 // ====== CREATE ======
-
 async function resolveAccount(params) {
   if (params.accountId) {
     const account = await db.Account.findByPk(params.accountId);
@@ -58,9 +60,16 @@ async function resolveAccount(params) {
   throw 'Please supply accountId or email for related account';
 }
 
+function normalizeStatus(raw) {
+  const s = (raw === undefined || raw === null) ? '' : String(raw).trim().toLowerCase();
+  return s;
+}
+
 async function create(params) {
   const account = await resolveAccount(params);
-  const status = (params.status || 'active').toString().toLowerCase();
+
+  const incomingStatus = normalizeStatus(params.status) || 'active';
+  if (!ALLOWED_STATUS.includes(incomingStatus)) throw 'Invalid status';
 
   const existing = await db.Employee.findOne({ where: { accountId: account.id } });
   if (existing) throw 'Employee for this account already exists';
@@ -70,12 +79,11 @@ async function create(params) {
     position: params.position || null,
     departmentId: params.departmentId || null,
     hireDate: params.hireDate || null,
-    status,
+    status: incomingStatus,
     created: new Date()
   };
 
   let employee;
-
   if (params.EmployeeID) {
     if (await db.Employee.findByPk(params.EmployeeID)) {
       throw `EmployeeID ${params.EmployeeID} already exists`;
@@ -83,6 +91,7 @@ async function create(params) {
     employee = new db.Employee({ ...base, EmployeeID: params.EmployeeID });
     await employee.save();
   } else {
+    // try to generate unique EmployeeID a few times
     for (let attempt = 1; attempt <= 5; attempt++) {
       const candidateId = await generateNextEmployeeID();
       try {
@@ -99,68 +108,99 @@ async function create(params) {
         throw err;
       }
     }
+    if (!employee) throw 'Failed to generate unique EmployeeID';
   }
 
-  // ✅ update department employeeCounts
   if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
+
+  const dept = employee.departmentId ? await db.Department.findByPk(employee.departmentId) : null;
+  await db.Workflow.create({
+    employeeId: employee.EmployeeID,
+    type: 'Onboarding',
+    details: `Onboarded to ${dept ? dept.departmentName : 'No Department'} as ${employee.position || 'Unassigned'} on ${employee.hireDate || 'N/A'}`,
+    status: 'pending' // ✅ fits enum
+  });
 
   return await getById(employee.EmployeeID);
 }
 
 // ====== UPDATE ======
-
 async function update(id, params) {
   const employee = await db.Employee.findByPk(id);
   if (!employee) throw 'Employee not found';
 
-  const oldDept = employee.departmentId;
+  const oldDeptId = employee.departmentId;
+  const oldDept = oldDeptId ? await db.Department.findByPk(oldDeptId) : null;
 
   if (params.accountId && params.accountId !== employee.accountId) {
     const account = await db.Account.findByPk(params.accountId);
     if (!account) throw 'Related account not found for new accountId';
     const duplicate = await db.Employee.findOne({ where: { accountId: params.accountId } });
-    if (duplicate) throw 'Employee for this account already exists';
+    if (duplicate && String(duplicate.EmployeeID) !== String(id)) throw 'Employee for this account already exists';
     employee.accountId = params.accountId;
   }
 
   const allowed = ['position', 'departmentId', 'hireDate', 'status'];
   for (const f of allowed) {
-    if (params[f] !== undefined) {
-      employee[f] =
-        f === 'status'
-          ? (params[f] || 'active').toString().toLowerCase()
-          : params[f];
+    if (Object.prototype.hasOwnProperty.call(params, f)) {
+      if (f === 'status') {
+        const normalized = normalizeStatus(params[f]);
+        if (!normalized) throw 'status cannot be empty';
+        if (!ALLOWED_STATUS.includes(normalized)) throw 'Invalid status';
+        employee.status = normalized;
+      } else {
+        employee[f] = params[f] === undefined ? employee[f] : params[f];
+      }
     }
   }
 
   await employee.save();
 
-  // ✅ update department counts
-  if (params.departmentId && params.departmentId !== oldDept) {
-    if (oldDept) await updateDepartmentCount(oldDept);
+  if (Object.prototype.hasOwnProperty.call(params, 'departmentId') && params.departmentId !== oldDeptId) {
+    if (oldDeptId) await updateDepartmentCount(oldDeptId);
     if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
-  } else if (params.departmentId) {
-    await updateDepartmentCount(employee.departmentId);
+
+    const newDept = employee.departmentId ? await db.Department.findByPk(employee.departmentId) : null;
+    await db.Workflow.create({
+      employeeId: employee.EmployeeID,
+      type: 'Department Transfer',
+      details: `From: ${oldDept ? oldDept.departmentName : 'N/A'} → To: ${newDept ? newDept.departmentName : 'N/A'}`,
+      status: 'pending' // ✅ fits enum
+    });
+  } else if (Object.prototype.hasOwnProperty.call(params, 'departmentId')) {
+    if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
   }
+
+  /* await db.Workflow.create({
+    employeeId: employee.EmployeeID,
+    type: 'Employee Updated',
+    details: `Updated fields: ${Object.keys(params).join(', ')}`,
+    status: 'approved' // ✅ fits enum
+  }); */
 
   return await getById(employee.EmployeeID);
 }
 
 // ====== DELETE ======
-
 async function _delete(id) {
   const employee = await db.Employee.findByPk(id);
   if (!employee) throw 'Employee not found';
 
-  const deptId = employee.departmentId;
+  const dept = employee.departmentId ? await db.Department.findByPk(employee.departmentId) : null;
+
+  await db.Workflow.create({
+    employeeId: employee.EmployeeID,
+    type: 'Employee Deleted',
+    details: `Removed from ${dept ? dept.departmentName : 'No Department'}`,
+    status: 'rejected' // ✅ fits enum
+  });
+
   await employee.destroy();
 
-  // ✅ update department count
-  if (deptId) await updateDepartmentCount(deptId);
+  if (dept) await updateDepartmentCount(dept.id);
 }
 
 // ====== HELPER ======
-
 async function updateDepartmentCount(departmentId) {
   if (!departmentId) return;
   const count = await db.Employee.count({ where: { departmentId } });

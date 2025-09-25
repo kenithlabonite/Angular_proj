@@ -765,2018 +765,6 @@ function model(sequelize) {
 
 
 ================================================================================
-File: backend.txt
-Size: 68.26 kB
-================================================================================
-
-
-================================================================================
-File: .vs\group-project-repo\v17\DocumentLayout.json
-Size: 2.56 kB
-================================================================================
-
-{
-  "Version": 1,
-  "WorkspaceRootPath": "C:\\Users\\Kenith Labonite\\group-project-repo\\",
-  "Documents": [
-    {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Kenith Labonite\\group-project-repo\\server.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:server.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Kenith Labonite\\group-project-repo\\accounts\\account.model.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:accounts\\account.model.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
-    }
-  ],
-  "DocumentGroupContainers": [
-    {
-      "Orientation": 0,
-      "VerticalTabListWidth": 256,
-      "DocumentGroups": [
-        {
-          "DockedWidth": 200,
-          "SelectedChildIndex": 0,
-          "Children": [
-            {
-              "$type": "Document",
-              "DocumentIndex": 0,
-              "Title": "server.js",
-              "DocumentMoniker": "C:\\Users\\Kenith Labonite\\group-project-repo\\server.js",
-              "RelativeDocumentMoniker": "server.js",
-              "ToolTip": "C:\\Users\\Kenith Labonite\\group-project-repo\\server.js",
-              "RelativeToolTip": "server.js",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
-              "WhenOpened": "2025-07-21T14:21:38.787Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 1,
-              "Title": "account.model.js",
-              "DocumentMoniker": "C:\\Users\\Kenith Labonite\\group-project-repo\\accounts\\account.model.js",
-              "RelativeDocumentMoniker": "accounts\\account.model.js",
-              "ToolTip": "C:\\Users\\Kenith Labonite\\group-project-repo\\accounts\\account.model.js",
-              "RelativeToolTip": "accounts\\account.model.js",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
-              "WhenOpened": "2025-07-21T14:21:26.704Z",
-              "EditorCaption": ""
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
-
-================================================================================
-File: .vs\VSWorkspaceState.json
-Size: 175 B
-================================================================================
-
-{
-  "ExpandedNodes": [
-    "",
-    "\\accounts",
-    "\\_helpers",
-    "\\_middleware"
-  ],
-  "SelectedNode": "\\swagger.yaml",
-  "PreviewInSolutionExplorer": false
-}
-
-================================================================================
-File: accounts\account.model.js
-Size: 1.68 kB
-================================================================================
-
-const { DataTypes } = require('sequelize');
-
-module.exports = model;
-
-function model(sequelize) {
-    const attributes = {
-        email: { type: DataTypes.STRING, allowNull: false },
-        passwordHash: { type: DataTypes.STRING, allowNull: true },
-        title: { type: DataTypes.STRING, allowNull: false },
-        firstName: { type: DataTypes.STRING, allowNull: false },
-        lastName: { type: DataTypes.STRING, allowNull: false },
-        acceptTerms: { type: DataTypes.BOOLEAN },
-        role: { type: DataTypes.STRING, allowNull: false },
-        verificationToken: { type: DataTypes.STRING },
-        verified: { type: DataTypes.DATE },
-        resetToken: { type: DataTypes.STRING },
-        resetTokenExpires: { type: DataTypes.DATE },
-        passwordReset: { type: DataTypes.DATE },
-        status: { type: DataTypes.ENUM('active', 'inactive'), allowNull: false, defaultValue: 'active' },
-        created: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
-        updated: { type: DataTypes.DATE },
-        isVerified: {
-            type: DataTypes.VIRTUAL,
-            get() { return !!(this.verified || this.passwordReset); }
-        }
-    };
-
-    const options = {
-        // disable default timestamp fields (createdAt and updatedAt)
-        timestamps: false, 
-        defaultScope: {
-            // exclude password hash by default
-            attributes: { exclude: ['passwordHash'] }
-        },
-        scopes: {
-            // include hash with this scope
-            withHash: { attributes: {}, }
-        }        
-    };
-
-    return sequelize.define('account', attributes, options);
-}
-
-================================================================================
-File: accounts\account.service.js
-Size: 11.5 kB
-================================================================================
-
-// account.service.js
-const config = require('config.json');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
-const { Op } = require('sequelize');
-const sendEmail = require('_helpers/send-email');
-const db = require('_helpers/db');
-const Role = require('_helpers/role');
-
-module.exports = {
-    authenticate,
-    refreshToken,
-    revokeToken,
-    register,
-    verifyEmail,
-    forgotPassword,
-    validateResetToken,
-    resetPassword,
-    getAll,
-    getById,
-    create,
-    update,
-    delete: _delete
-};
-
-// ------------------------- Authentication & tokens -------------------------
-
-async function authenticate({ email, password, ipAddress }) {
-    const account = await db.Account.scope('withHash').findOne({ where: { email } });
-
-    if (!account || !account.isVerified || !(await bcrypt.compare(password, account.passwordHash))) {
-        throw 'Email or password is incorrect';
-    }
-
-    // authentication successful so generate jwt and refresh tokens
-    const jwtToken = generateJwtToken(account);
-    const refreshToken = generateRefreshToken(account, ipAddress);
-
-    // save refresh token
-    await refreshToken.save();
-
-    // return basic details and tokens
-    return {
-        ...basicDetails(account),
-        jwtToken,
-        refreshToken: refreshToken.token
-    };
-}
-
-async function refreshToken({ token, ipAddress }) {
-    const refreshToken = await getRefreshToken(token);
-    const account = await refreshToken.getAccount();
-
-    // replace old refresh token with a new one and save
-    const newRefreshToken = generateRefreshToken(account, ipAddress);
-    refreshToken.revoked = Date.now();
-    refreshToken.revokedByIp = ipAddress;
-    refreshToken.replacedByToken = newRefreshToken.token;
-    await refreshToken.save();
-    await newRefreshToken.save();
-
-    // generate new jwt
-    const jwtToken = generateJwtToken(account);
-
-    // return basic details and tokens
-    return {
-        ...basicDetails(account),
-        jwtToken,
-        refreshToken: newRefreshToken.token
-    };
-}
-
-async function revokeToken({ token, ipAddress }) {
-    const refreshToken = await getRefreshToken(token);
-
-    // revoke token and save
-    refreshToken.revoked = Date.now();
-    refreshToken.revokedByIp = ipAddress;
-    await refreshToken.save();
-}
-
-// ------------------------- Registration / Password flows -------------------------
-
-async function register(params, origin) {
-    // prevent duplicate registration
-    if (await db.Account.findOne({ where: { email: params.email } })) {
-        // send already registered error in email to prevent account enumeration
-        return await sendAlreadyRegisteredEmail(params.email, origin);
-    }
-
-    // create account object
-    const account = new db.Account(params);
-
-    // first registered account is an admin
-    const isFirstAccount = (await db.Account.count()) === 0;
-    account.role = isFirstAccount ? Role.Admin : Role.User;
-    account.verificationToken = randomTokenString();
-
-    // hash password
-    account.passwordHash = await hash(params.password);
-
-    // save account
-    await account.save();
-
-    // send verification email
-    await sendVerificationEmail(account, origin);
-}
-
-async function verifyEmail({ token }) {
-    const account = await db.Account.findOne({ where: { verificationToken: token } });
-
-    if (!account) throw 'Verification failed';
-
-    account.verified = Date.now();
-    account.verificationToken = null;
-    await account.save();
-}
-
-async function forgotPassword({ email }, origin) {
-    const account = await db.Account.findOne({ where: { email } });
-
-    // always return ok response to prevent email enumeration
-    if (!account) return;
-
-    // create reset token that expires after 24 hours
-    account.resetToken = randomTokenString();
-    account.resetTokenExpires = new Date(Date.now() + 24*60*60*1000);
-    await account.save();
-
-    // send email
-    await sendPasswordResetEmail(account, origin);
-}
-
-async function validateResetToken({ token }) {
-    const account = await db.Account.findOne({
-        where: {
-            resetToken: token,
-            resetTokenExpires: { [Op.gt]: Date.now() }
-        }
-    });
-
-    if (!account) throw 'Invalid token';
-
-    return account;
-}
-
-async function resetPassword({ token, password }) {
-    const account = await validateResetToken({ token });
-
-    // update password and remove reset token
-    account.passwordHash = await hash(password);
-    account.passwordReset = Date.now();
-    account.resetToken = null;
-    await account.save();
-}
-
-// ------------------------- Read / Write / Delete -------------------------
-
-async function getAll() {
-    const accounts = await db.Account.findAll({
-        attributes: ['id', 'title', 'firstName', 'lastName', 'email', 'role', 'status', 'created', 'updated', 'isVerified']
-    });
-    return accounts;
-}
-
-async function getById(id) {
-    const account = await getAccount(id);
-    if (!account) return null; // return null instead of throwing
-    return basicDetails(account);
-}
-
-async function create(params) {
-    // validate email uniqueness
-    if (await db.Account.findOne({ where: { email: params.email } })) {
-        throw `Email "${params.email}" is already registered`;
-    }
-
-    // create account object
-    const account = new db.Account(params);
-
-    // mark verified if you want admin-created accounts to be auto-verified
-    account.verified = Date.now();
-
-    // If admin provided a password -> hash & save normally
-    if (params.password) {
-        account.passwordHash = await hash(params.password);
-    } else {
-        // No password provided -> create reset token so the user can set a password later
-        account.resetToken = randomTokenString();
-        account.resetTokenExpires = new Date(Date.now() + 24*60*60*1000);
-
-        // persist account first so token is saved
-        await account.save();
-
-        // Attempt to send reset email; if mail isn't configured just log token
-        try {
-            await sendPasswordResetEmail(account, /* origin */ null);
-        } catch (err) {
-            // don't fail creation if email sending fails; log for debugging
-            console.warn('sendPasswordResetEmail failed. Reset token:', account.resetToken);
-        }
-
-        return basicDetails(account);
-    }
-
-    // If we hashed password branch, save account normally
-    await account.save();
-    return basicDetails(account);
-}
-
-async function update(id, params) {
-    const account = await getAccount(id);
-    if (!account) throw 'Account not found';
-
-    // validate (if email was changed)
-    if (
-        params.email &&
-        account.email !== params.email &&
-        await db.Account.findOne({ where: { email: params.email } })
-    ) {
-        throw 'Email "' + params.email + '" is already taken';
-    }
-
-    // hash password if it was entered and remove raw password
-    if (params.password) {
-        params.passwordHash = await hash(params.password);
-        delete params.password;
-        delete params.confirmPassword;
-    }
-
-    // explicitly handle status if provided
-    if (params.status) {
-        account.status = params.status;
-    }
-
-    // copy remaining params to account
-    Object.assign(account, params);
-    account.updated = Date.now();
-    await account.save();
-
-    return basicDetails(account);
-}
-
-async function _delete(id) {
-    const account = await getAccount(id);
-    if (!account) throw 'Account not found';
-    await account.destroy();
-}
-
-// ------------------------- Helper functions -------------------------
-
-async function getAccount(id) {
-    const account = await db.Account.findByPk(id);
-    if (!account) return null;
-    return account;
-}
-
-async function getRefreshToken(token) {
-    const refreshToken = await db.RefreshToken.findOne({ where: { token } });
-    if (!refreshToken || !refreshToken.isActive) throw 'Invalid token';
-    return refreshToken;
-}
-
-async function hash(password) {
-    return await bcrypt.hash(password, 10);
-}
-
-function generateJwtToken(account) {
-    // create a jwt token containing the account id that expires in 15 minutes
-    return jwt.sign({ sub: account.id, id: account.id }, config.secret, { expiresIn: '15m' });
-}
-
-function generateRefreshToken(account, ipAddress) {
-    // create a refresh token that expires in 7 days
-    return new db.RefreshToken({
-        accountId: account.id,
-        token: randomTokenString(),
-        expires: new Date(Date.now() + 7*24*60*60*1000),
-        createdByIp: ipAddress
-    });
-}
-
-function randomTokenString() {
-    return crypto.randomBytes(40).toString('hex');
-}
-
-function basicDetails(account) {
-    const { id, title, firstName, lastName, email, role, status, created, updated, isVerified } = account;
-    return { id, title, firstName, lastName, email, role, status, created, updated, isVerified };
-}
-
-// ------------------------- Email helpers -------------------------
-
-async function sendVerificationEmail(account, origin) {
-    let message;
-    if (origin) {
-        const verifyUrl = `${origin}/account/verify-email?token=${account.verificationToken}`;
-        message = `<p>Please click the below link to verify your email address:</p>
-                   <p><a href="${verifyUrl}">${verifyUrl}</a></p>`;
-    } else {
-        message = `<p>Please use the below token to verify your email address with the <code>/account/verify-email</code> api route:</p>
-                   <p><code>${account.verificationToken}</code></p>`;
-    }
-
-    await sendEmail({
-        to: account.email,
-        subject: 'Sign-up Verification API - Verify Email',
-        html: `<h4>Verify Email</h4>
-               <p>Thanks for registering!</p>
-               ${message}`
-    });
-}
-
-async function sendAlreadyRegisteredEmail(email, origin) {
-    let message;
-    if (origin) {
-        message = `<p>If you don't know your password please visit the <a href="${origin}/account/forgot-password">forgot password</a> page.</p>`;
-    } else {
-        message = `<p>If you don't know your password you can reset it via the <code>/account/forgot-password</code> api route.</p>`;
-    }
-
-    await sendEmail({
-        to: email,
-        subject: 'Sign-up Verification API - Email Already Registered',
-        html: `<h4>Email Already Registered</h4>
-               <p>Your email <strong>${email}</strong> is already registered.</p>
-               ${message}`
-    });
-}
-
-async function sendPasswordResetEmail(account, origin) {
-    let message;
-    if (origin) {
-        const resetUrl = `${origin}/account/reset-password?token=${account.resetToken}`;
-        message = `<p>Please click the below link to reset your password, the link will be valid for 1 day:</p>
-                   <p><a href="${resetUrl}">${resetUrl}</a></p>`;
-    } else {
-        message = `<p>Please use the below token to reset your password with the <code>/account/reset-password</code> api route:</p>
-                   <p><code>${account.resetToken}</code></p>`;
-    }
-
-    await sendEmail({
-        to: account.email,
-        subject: 'Sign-up Verification API - Reset Password',
-        html: `<h4>Reset Password Email</h4>
-               ${message}`
-    });
-}
-
-================================================================================
-File: accounts\accounts.controller.js
-Size: 9.59 kB
-================================================================================
-
-﻿// accounts.controller.js
-const express = require('express');
-const router = express.Router();
-const Joi = require('joi');
-const validateRequest = require('_middleware/validate-request');
-const authorize = require('_middleware/authorize');
-const Role = require('_helpers/role');
-const accountService = require('./account.service');
-
-// routes
-router.post('/authenticate', authenticateSchema, authenticate);
-router.post('/refresh-token', refreshToken);
-router.post('/revoke-token', authorize(), revokeTokenSchema, revokeToken);
-router.post('/register', registerSchema, register);
-router.post('/verify-email', verifyEmailSchema, verifyEmail);
-router.post('/forgot-password', forgotPasswordSchema, forgotPassword);
-router.post('/validate-reset-token', validateResetTokenSchema, validateResetToken);
-router.post('/reset-password', resetPasswordSchema, resetPassword);
-router.get('/', /* authorize(Role.Admin), */ getAll);
-router.get('/:id', authorize(), getById);
-router.post('/', authorize(Role.Admin), createSchema, create);
-router.put('/:id', authorize(), updateSchema, update);
-router.delete('/:id', /* authorize(), */ _delete);
-
-module.exports = router;
-
-/* --------------------
-   Schemas & Handlers
-   -------------------- */
-
-function authenticateSchema(req, res, next) {
-  const schema = Joi.object({
-    email: Joi.string().required(),
-    password: Joi.string().required()
-  });
-  validateRequest(req, next, schema);
-}
-
-function authenticate(req, res, next) {
-  const { email, password } = req.body;
-  const ipAddress = req.ip;
-
-  accountService.authenticate({ email, password, ipAddress })
-    .then(result => {
-      // Defensive handling: result may be null, an account, or an object with jwtToken/refreshToken/account
-      if (!result) return res.status(400).json({ message: 'Email or password is incorrect' });
-
-      // normalize
-      const account = result.account || result;
-      const jwtToken = result.jwtToken || (account && account.jwtToken);
-      const refreshToken = result.refreshToken || (result.account && result.refreshToken);
-
-      if (!account) return res.status(400).json({ message: 'Email or password is incorrect' });
-
-      // set refresh token cookie if present
-      if (refreshToken) setTokenCookie(res, refreshToken);
-
-      // respond with account payload + jwtToken if present
-      const response = { ...account };
-      if (jwtToken) response.jwtToken = jwtToken;
-
-      return res.json(response);
-    })
-    .catch(next);
-}
-
-function refreshToken(req, res, next) {
-  const token = req.cookies && req.cookies.refreshToken;
-  const ipAddress = req.ip;
-
-  accountService.refreshToken({ token, ipAddress })
-    .then(result => {
-      if (!result) return res.status(400).json({ message: 'Invalid token' });
-
-      const refreshToken = result.refreshToken;
-      const account = result.account || result;
-
-      if (refreshToken) setTokenCookie(res, refreshToken);
-      return res.json(account);
-    })
-    .catch(next);
-}
-
-function revokeTokenSchema(req, res, next) {
-  const schema = Joi.object({
-    token: Joi.string().empty('')
-  });
-  validateRequest(req, next, schema);
-}
-
-function revokeToken(req, res, next) {
-  const token = req.body.token || (req.cookies && req.cookies.refreshToken);
-  const ipAddress = req.ip;
-
-  if (!token) return res.status(400).json({ message: 'Token is required' });
-
-  // user must be set by authorize middleware
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-
-  // users can revoke their own tokens; admins can revoke any
-  const owns = typeof req.user.ownsToken === 'function' ? req.user.ownsToken(token) : false;
-  if (!owns && req.user.role !== Role.Admin) {
-    return res.status(401).json({ message: 'Unauthorized' });
-  }
-
-  accountService.revokeToken({ token, ipAddress })
-    .then(() => res.json({ message: 'Token revoked' }))
-    .catch(next);
-}
-
-function registerSchema(req, res, next) {
-  const schema = Joi.object({
-    title: Joi.string().required(),
-    firstName: Joi.string().required(),
-    lastName: Joi.string().required(),
-    email: Joi.string().email().required(),
-    password: Joi.string().min(6).required(),
-    confirmPassword: Joi.string().valid(Joi.ref('password')).required(),
-    acceptTerms: Joi.boolean().valid(true).required()
-  });
-  validateRequest(req, next, schema);
-}
-
-function register(req, res, next) {
-  accountService.register(req.body, req.get('origin'))
-    .then(() => res.json({ message: 'Registration successful, please check your email for verification instructions' }))
-    .catch(next);
-}
-
-function verifyEmailSchema(req, res, next) {
-  const schema = Joi.object({
-    token: Joi.string().required()
-  });
-  validateRequest(req, next, schema);
-}
-
-function verifyEmail(req, res, next) {
-  accountService.verifyEmail(req.body)
-    .then(() => res.json({ message: 'Verification successful, you can now login' }))
-    .catch(next);
-}
-
-function forgotPasswordSchema(req, res, next) {
-  const schema = Joi.object({
-    email: Joi.string().email().required()
-  });
-  validateRequest(req, next, schema);
-}
-
-function forgotPassword(req, res, next) {
-  accountService.forgotPassword(req.body, req.get('origin'))
-    .then(() => res.json({ message: 'Please check your email for password reset instructions' }))
-    .catch(next);
-}
-
-function validateResetTokenSchema(req, res, next) {
-  const schema = Joi.object({
-    token: Joi.string().required()
-  });
-  validateRequest(req, next, schema);
-}
-
-function validateResetToken(req, res, next) {
-  accountService.validateResetToken(req.body)
-    .then(() => res.json({ message: 'Token is valid' }))
-    .catch(next);
-}
-
-function resetPasswordSchema(req, res, next) {
-  const schema = Joi.object({
-    token: Joi.string().required(),
-    password: Joi.string().min(6).required(),
-    confirmPassword: Joi.string().valid(Joi.ref('password')).required()
-  });
-  validateRequest(req, next, schema);
-}
-
-function resetPassword(req, res, next) {
-  accountService.resetPassword(req.body)
-    .then(() => res.json({ message: 'Password reset successful, you can now login' }))
-    .catch(next);
-}
-
-function getAll(req, res, next) {
-  accountService.getAll()
-    .then(accounts => res.json(accounts))
-    .catch(next);
-}
-
-function getById(req, res, next) {
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-
-  // users can get their own account and admins can get any account
-  if (String(req.params.id) !== String(req.user.id) && req.user.role !== Role.Admin) {
-    return res.status(401).json({ message: 'Unauthorized' });
-  }
-
-  accountService.getById(req.params.id)
-    .then(account => account ? res.json(account) : res.sendStatus(404))
-    .catch(next);
-}
-
-function createSchema(req, res, next) {
-  const schema = Joi.object({
-    title: Joi.string().required(),
-    firstName: Joi.string().required(),
-    lastName: Joi.string().required(),
-    email: Joi.string().email().required(),
-    role: Joi.string().valid(Role.Admin, Role.User).required(),
-    status: Joi.string().valid('active', 'inactive').required()
-  });
-  validateRequest(req, next, schema);
-}
-
-
-function create(req, res, next) {
-  accountService.create(req.body)
-    .then(account => res.json(account))
-    .catch(next);
-}
-
-function updateSchema(req, res, next) {
-  // Always declare schemaRules first
-  const schemaRules = {
-    title: Joi.string().empty(''),
-    firstName: Joi.string().empty(''),
-    lastName: Joi.string().empty(''),
-    email: Joi.string().email().empty(''),
-    password: Joi.string().min(6).empty(''),
-    confirmPassword: Joi.string().valid(Joi.ref('password')).empty('')
-  };
-
-  // only admins can update role and status
-  if (req.user && req.user.role === Role.Admin) {
-    schemaRules.role = Joi.string().valid(Role.Admin, Role.User).empty('');
-    schemaRules.status = Joi.string().valid('active', 'inactive').empty('');
-  }
-
-  const schema = Joi.object(schemaRules).with('password', 'confirmPassword');
-  validateRequest(req, next, schema);
-}
-
-function update(req, res, next) {
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-
-  // users can update their own account and admins can update any account
-  if (String(req.params.id) !== String(req.user.id) && req.user.role !== Role.Admin) {
-    return res.status(401).json({ message: 'Unauthorized' });
-  }
-
-  // build params safely: only allow fields defined in updateSchema
-  const allowedFields = ['title', 'firstName', 'lastName', 'email', 'password', 'confirmPassword'];
-  if (req.user.role === Role.Admin) allowedFields.push('role', 'status');
-
-  const params = {};
-  for (const field of allowedFields) {
-    if (Object.prototype.hasOwnProperty.call(req.body, field)) params[field] = req.body[field];
-  }
-
-  accountService.update(req.params.id, params)
-    .then(account => res.json(account))
-    .catch(next);
-}
-
-function _delete(req, res, next) {
-  accountService.delete(req.params.id)
-    .then(() => res.json({ message: 'Account deleted successfully' }))
-    .catch(next);
-}
-
-/* --------------------
-   Helper functions
-   -------------------- */
-
-function setTokenCookie(res, token) {
-  // create cookie with refresh token that expires in 7 days
-  const cookieOptions = {
-    httpOnly: true,
-    expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-  };
-  res.cookie('refreshToken', token, cookieOptions);
-}
-
-
-================================================================================
-File: accounts\refresh-token.model.js
-Size: 981 B
-================================================================================
-
-const { DataTypes } = require('sequelize');
-
-module.exports = model;
-
-function model(sequelize) {
-    const attributes = {
-        token: { type: DataTypes.STRING },
-        expires: { type: DataTypes.DATE },
-        created: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
-        createdByIp: { type: DataTypes.STRING },
-        revoked: { type: DataTypes.DATE },
-        revokedByIp: { type: DataTypes.STRING },
-        replacedByToken: { type: DataTypes.STRING },
-        isExpired: {
-            type: DataTypes.VIRTUAL,
-            get() { return Date.now() >= this.expires; }
-        },
-        isActive: {
-            type: DataTypes.VIRTUAL,
-            get() { return !this.revoked && !this.isExpired; }
-        }
-    };
-
-    const options = {
-        // disable default timestamp fields (createdAt and updatedAt)
-        timestamps: false
-    };
-
-    return sequelize.define('refreshToken', attributes, options);
-}
-
-
-================================================================================
-File: config.json
-Size: 532 B
-================================================================================
-
-{
-    "database": {
-        "host": "localhost",
-        "port": 3306,
-        "user": "root",
-        "password": "root",
-        "database": "node-mysql-signup-verification-api"
-    },
-    "secret": "49857eae-5b2d-4e74-b5e7-99953f347936",
-    "emailFrom": "info@node-mysql-signup-verification-api.com",
-    "smtpOptions": {
-        "host": "smtp.ethereal.email",
-        "port": 587,
-        "auth": {
-            "user": "chaya.terry@ethereal.email",
-            "pass": "PQs5atC3T4ChgWAggB"
-        }
-    }
-}
-
-
-================================================================================
-File: departments\department.controller.js
-Size: 0 B
-================================================================================
-
-
-
-================================================================================
-File: departments\department.model.js
-Size: 0 B
-================================================================================
-
-
-
-================================================================================
-File: departments\department.service.js
-Size: 0 B
-================================================================================
-
-
-
-================================================================================
-File: employees\employee.controller.js
-Size: 1.35 kB
-================================================================================
-
-const express = require('express');
-const router = express.Router();
-const employeeService = require('./employee.service');
-const authorize = require('_middleware/authorize');
-const Role = require('_helpers/role');
-
-// routes
-router.get('/', /* authorize(Role.Admin), */ getAll);
-router.get('/:id', authorize(Role.Admin), getById);
-router.post('/', authorize(Role.Admin), create);
-router.put('/:id', authorize(Role.Admin), update);
-router.delete('/:id', authorize(Role.Admin), _delete);
-
-module.exports = router;
-
-function getAll(req, res, next) {
-    employeeService.getAll()
-        .then(employees => res.json(employees))
-        .catch(next);
-}
-
-function getById(req, res, next) {
-    employeeService.getById(req.params.id)
-        .then(employee => employee ? res.json(employee) : res.sendStatus(404))
-        .catch(next);
-}
-
-function create(req, res, next) {
-    employeeService.create(req.body)
-        .then(employee => res.json(employee))
-        .catch(next);
-}
-
-function update(req, res, next) {
-    employeeService.update(req.params.id, req.body)
-        .then(employee => res.json(employee))
-        .catch(next);
-}
-
-function _delete(req, res, next) {
-    employeeService.delete(req.params.id)
-        .then(() => res.json({ message: 'Employee deleted successfully' }))
-        .catch(next);
-}
-
-
-================================================================================
-File: employees\employee.model.js
-Size: 783 B
-================================================================================
-
-const { DataTypes } = require('sequelize');
-
-module.exports = (sequelize) => {
-    const attributes = {
-        // FK to accounts.id
-        EmployeeID: { 
-            type: DataTypes.INTEGER,
-            primaryKey: true,
-            references: { model: 'accounts', key: 'id' },
-            onDelete: 'CASCADE',
-            onUpdate: 'CASCADE'
-        },
-        email: { type: DataTypes.STRING, allowNull: false },
-        position: { type: DataTypes.STRING },
-        department: { type: DataTypes.STRING },
-        hireDate: { type: DataTypes.DATE },
-        status: { type: DataTypes.ENUM('active', 'inactive'), defaultValue: 'active' }
-    };
-
-    const options = { timestamps: false };
-
-    return sequelize.define('employee', attributes, options);
-};
-
-
-================================================================================
-File: employees\employee.service.js
-Size: 2.39 kB
-================================================================================
-
-const db = require('_helpers/db');
-const { Op } = require('sequelize');
-
-module.exports = {
-  getAll,
-  getById,
-  create,
-  update,
-  delete: _delete
-};
-
-// return all employees and include associated account (so frontend shows email)
-async function getAll() {
-  return await db.Employee.findAll({ include: db.Account });
-}
-
-async function getById(id) {
-  return await db.Employee.findByPk(id, { include: db.Account });
-}
-
-// Create employee - generate EmployeeID if not provided, ensure email linked to existing account
-async function create(params) {
-  // validate account exists
-  const account = await db.Account.findOne({ where: { email: params.email } });
-  if (!account) throw 'Related account not found for email';
-
-  // generate EmployeeID like EMP001, EMP002 ... based on count (simple)//
-  const count = await db.Employee.count();
-  const next = count + 1;
-  const EmployeeID = params.EmployeeID ? params.EmployeeID : `EMP${String(next).padStart(3, '0')}`;
-
-  // avoid duplicate EmployeeID
-  if (await db.Employee.findByPk(EmployeeID)) {
-    throw `EmployeeID ${EmployeeID} is already exists`;
-  }
-
-
-  const employee = new db.Employee({
-    EmployeeID,
-    email: params.email,
-    position: params.position,
-    department: params.department,
-    hireDate: params.hireDate || null,
-    status: params.status || 'Active',
-    created: new Date()
-  });
-
-  await employee.save();
-  return await getById(EmployeeID);
-}
-
-async function update(id, params) {
-  const employee = await db.Employee.findByPk(id);
-  if (!employee) throw 'Employee not found';
-
-  // if email changed, ensure target account exists
-  if (params.email && params.email !== employee.email) {
-    const account = await db.Account.findOne({ where: { email: params.email } });
-    if (!account) throw 'Related account not found for new email';
-  }
-
-  // copy allowed fields only
-  const allowed = ['email', 'position', 'department', 'hireDate', 'status'];
-  for (const f of allowed) {
-    if (Object.prototype.hasOwnProperty.call(params, f)) employee[f] = params[f];
-  }
-
-  employee.updated = new Date();
-  await employee.save();
-  return await getById(employee.EmployeeID);
-} 
-
-async function _delete(id) {
-  const employee = await db.Employee.findByPk(id);
-  if (!employee) throw 'Employee not found';
-  await employee.destroy();
-}
-
-
-
-================================================================================
-File: package.json
-Size: 996 B
-================================================================================
-
-{
-  "name": "mysql-boilerplate",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "start": "node ./server.js",
-    "start:dev": "nodemon ./server.js",
-    "export:all": "folder2txt --output Backend.txt C:/Users/Kenith Labonite/group-project-repo --exclude node_modules"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "NodeJS and MySQL for REST API Sign Up with verification, Authentication & Forgot Password",
-  "dependencies": {
-    "bcrypt": "^5.1.1",
-    "bcryptjs": "^3.0.2",
-    "cookie-parser": "^1.4.7",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^5.1.0",
-    "express-jwt": "^8.5.1",
-    "folder2txt": "^1.0.2",
-    "joi": "^17.13.3",
-    "jsonwebtoken": "^9.0.2",
-    "mysql2": "^3.14.0",
-    "nodemailer": "^6.10.0",
-    "rootpath": "^0.1.2",
-    "sequelize": "^6.37.7",
-    "swagger-ui-express": "^5.0.1",
-    "yamljs": "^0.3.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.9"
-  }
-}
-
-
-================================================================================
-File: server.js
-Size: 1.22 kB
-================================================================================
-
-require('rootpath')();
-const express = require('express');
-const app = express();
-const bodyParser = require('body-parser');
-const cookieParser = require('cookie-parser');
-const cors = require('cors');
-const errorHandler = require('_middleware/error-handler');
-
-// middleware
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
-app.use(cookieParser());
-
-// allow cors requests from any origin and with credentials
-app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
-
-// api routes
-const accountRoutes = require('./accounts/accounts.controller');
-const employeeRoutes = require('./employees/employee.controller');
-
-// If you plan to expose refresh tokens via API, add a controller for it
-// const refreshTokenRoutes = require('./accounts/refresh-tokens.controller');
-
-app.use('/accounts', accountRoutes);
-app.use('/employees', employeeRoutes);
-// app.use('/refreshtokens', refreshTokenRoutes);
-
-// global error handler
-app.use(errorHandler);
-
-// start server
-const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 80) : 4000;
-app.listen(port, () => console.log('Server listening on port ' + port));
-
-
-================================================================================
-File: swagger.yaml
-Size: 23.7 kB
-================================================================================
-
-
-openapi: 3.0.0
-info:
-  title: Node.js Sign-up and Verification API
-  description: Node.js and MySQL - API with email sign-up, verification, authentication and forgot password
-  version: 1.0.0
-
-servers:
-  - url: http://localhost:4000
-    description: Local development server
-
-paths:
-  /accounts/authenticate:
-    post:
-      summary: Authenticate account credentials and return a JWT token and a cookie with a refresh token
-      description: Accounts must be verified before authenticating.
-      operationId: authenticate
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                email:
-                  type: string
-                  example: "jason@example.com"
-                password:
-                  type: string
-                  example: "pass123"
-              required:
-                - email
-                - password
-      responses:
-        "200":
-          description: Account details, a JWT access token and a refresh token cookie
-          headers:
-            Set-Cookie:
-              description: "`refreshToken`"
-              schema:
-                type: string
-                example: refreshToken=51872eca5efedcf424db4cf5afd16a9d00ad25b743a034c9c221afc85d18dcd5e4ad6e3f08607550; Path=/; Expires=Tue, 16 Jun 2020 09:14:17 GMT; HttpOnly
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    example: "5eb12e197e06a76ccdefc121"
-                  title:
-                    type: string
-                    example: "Mr"
-                  firstName:
-                    type: string
-                    example: "Jason"
-                  lastName:
-                    type: string
-                    example: "Watmore"
-                  email:
-                    type: string
-                    example: "jason@example.com"
-                  role:
-                    type: string
-                    example: "Admin"
-                  created:
-                    type: string
-                    example: "2020-05-05T09:12:57.848Z"
-                  isVerified:
-                    type: boolean
-                    example: true
-                  jwtToken:
-                    type: string
-                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZWIxMmUxOTdlMDZhNzZjY2RlZmMxMjEiLCJpZCI6IjVlYjEyZTE5N2UwNmE3NmNjZGVmYzEyMSIsImlhdCI6MTU4ODc1ODE1N30.xR9H0STbFOpSkuGA9jHNZOJ6eS7umHHqKRhI807YT1Y"
-        "400":
-          description: The email or password is incorrect
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Email or password is incorrect"
-  /accounts/refresh-token:
-    post:
-      summary: Use a refresh token to generate a new JWT token and a new refresh token
-      description: The refresh token is sent and returned via cookies.
-      operationId: refreshToken
-      parameters:
-        - in: cookie
-          name: refreshToken
-          description: The `refreshToken` cookie
-          schema:
-            type: string
-            example: 51872eca5efedcf424db4cf5afd16a9d00ad25b743a034c9c221afc85d18dcd5e4ad6e3f08607550
-      responses:
-        "200":
-          description: Account details, a JWT access token and a new refresh token cookie
-          headers:
-            Set-Cookie:
-              description: "`refreshToken`"
-              schema:
-                type: string
-                example: refreshToken=51872eca5efedcf424db4cf5afd16a9d00ad25b743a034c9c221afc85d18dcd5e4ad6e3f08607550; Path=/; Expires=Tue, 16 Jun 2020 09:14:17 GMT; HttpOnly
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    example: "5eb12e197e06a76ccdefc121"
-                  title:
-                    type: string
-                    example: "Mr"
-                  firstName:
-                    type: string
-                    example: "Jason"
-                  lastName:
-                    type: string
-                    example: "Watmore"
-                  email:
-                    type: string
-                    example: "jason@example.com"
-                  role:
-                    type: string
-                    example: "Admin"
-                  created:
-                    type: string
-                    example: "2020-05-05T09:12:57.848Z"
-                  isVerified:
-                    type: boolean
-                    example: true
-                  jwtToken:
-                    type: string
-                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZWIxMmUxOTdlMDZhNzZjY2RlZmMxMjEiLCJpZCI6IjVlYjEyZTE5N2UwNmE3NmNjZGVmYzEyMSIsImlhdCI6MTU4ODc1ODE1N30.xR9H0STbFOpSkuGA9jHNZOJ6eS7umHHqKRhI807YT1Y"
-        "400":
-          description: The refresh token is invalid, revoked or expired
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Invalid token"
-  /accounts/revoke-token:
-    post:
-      summary: Revoke a refresh token
-      description: Admin users can revoke the tokens of any account, regular users can only revoke their own tokens.
-      operationId: revokeToken
-      security:
-        - bearerAuth: []
-      parameters:
-        - in: cookie
-          name: refreshToken
-          description: The refresh token can be sent in a cookie or the post body, if both are sent the token in the body is used.
-          schema:
-            type: string
-            example: 51872eca5efedcf424db4cf5afd16a9d00ad25b743a034c9c221afc85d18dcd5e4ad6e3f08607550
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                token:
-                  type: string
-                  example: "51872eca5efedcf424db4cf5afd16a9d00ad25b743a034c9c221afc85d18dcd5e4ad6e3f08607550"
-      responses:
-        "200":
-          description: The refresh token was successfully revoked
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Token revoked"
-        "400":
-          description: The refresh token is invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Invalid token"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-  /accounts/register:
-    post:
-      summary: Register a new user account and send a verification email
-      description: The first account registered in the system is assigned the `Admin` role, other accounts are assigned the `User` role.
-      operationId: register
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                title:
-                  type: string
-                  example: "Mr"
-                firstName:
-                  type: string
-                  example: "Jason"
-                lastName:
-                  type: string
-                  example: "Watmore"
-                email:
-                  type: string
-                  example: "jason@example.com"
-                password:
-                  type: string
-                  example: "pass123"
-                confirmPassword:
-                  type: string
-                  example: "pass123"
-                acceptTerms:
-                  type: boolean
-              required:
-                - title
-                - firstName
-                - lastName
-                - email
-                - password
-                - confirmPassword
-                - acceptTerms
-      responses:
-        "200":
-          description: The registration request was successful and a verification email has been sent to the specified email address
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Registration successful, please check your email for verification instructions"
-  /accounts/verify-email:
-    post:
-      summary: Verify a new account with a verification token received by email after registration
-      operationId: verifyEmail
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                token:
-                  type: string
-                  example: "3c7f8d9c4cb348ff95a0b74a1452aa24fc9611bb76768bb9eafeeb826ddae2935f1880bc7713318f"
-              required:
-                - token
-      responses:
-        "200":
-          description: Verification was successful so you can now login to the account
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Verification successful, you can now login"
-        "400":
-          description: Verification failed due to an invalid token
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Verification failed"
-  /accounts/forgot-password:
-    post:
-      summary: Submit email address to reset the password on an account
-      operationId: forgotPassword
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                email:
-                  type: string
-                  example: "jason@example.com"
-              required:
-                - email
-      responses:
-        "200":
-          description: The request was received and an email has been sent to the specified address with password reset instructions (if the email address is associated with an account)
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Please check your email for password reset instructions"
-  /accounts/validate-reset-token:
-    post:
-      summary: Validate the reset password token received by email after submitting to the /accounts/forgot-password route
-      operationId: validateResetToken
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                token:
-                  type: string
-                  example: "3c7f8d9c4cb348ff95a0b74a1452aa24fc9611bb76768bb9eafeeb826ddae2935f1880bc7713318f"
-              required:
-                - token
-      responses:
-        "200":
-          description: Token is valid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Token is valid"
-        "400":
-          description: Token is invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Invalid token"
-  /accounts/reset-password:
-    post:
-      summary: Reset the password for an account
-      operationId: resetPassword
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                token:
-                  type: string
-                  example: "3c7f8d9c4cb348ff95a0b74a1452aa24fc9611bb76768bb9eafeeb826ddae2935f1880bc7713318f"
-                password:
-                  type: string
-                  example: "newPass123"
-                confirmPassword:
-                  type: string
-                  example: "newPass123"
-              required:
-                - token
-                - password
-                - confirmPassword
-      responses:
-        "200":
-          description: Password reset was successful so you can now login to the account with the new password
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Password reset successful, you can now login"
-        "400":
-          description: Password reset failed due to an invalid token
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Invalid token"
-  /accounts:
-    get:
-      summary: Get a list of all accounts
-      description: Restricted to admin users.
-      operationId: getAllAccounts
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: An array of all accounts
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                      example: "5eb12e197e06a76ccdefc121"
-                    title:
-                      type: string
-                      example: "Mr"
-                    firstName:
-                      type: string
-                      example: "Jason"
-                    lastName:
-                      type: string
-                      example: "Watmore"
-                    email:
-                      type: string
-                      example: "jason@example.com"
-                    role:
-                      type: string
-                      example: "Admin"
-                    created:
-                      type: string
-                      example: "2020-05-05T09:12:57.848Z"
-                    updated:
-                      type: string
-                      example: "2020-05-08T03:11:21.553Z"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-    post:
-      summary: Create a new account
-      description: Restricted to admin users.
-      operationId: createAccount
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                title:
-                  type: string
-                  example: "Mr"
-                firstName:
-                  type: string
-                  example: "Jason"
-                lastName:
-                  type: string
-                  example: "Watmore"
-                email:
-                  type: string
-                  example: "jason@example.com"
-                password:
-                  type: string
-                  example: "pass123"
-                confirmPassword:
-                  type: string
-                  example: "pass123"
-                role:
-                  type: string
-                  enum: [Admin, User]
-              required:
-                - title
-                - firstName
-                - lastName
-                - email
-                - password
-                - confirmPassword
-                - role
-      responses:
-        "200":
-          description: Account created successfully, verification is not required for accounts created with this endpoint. The details of the new account are returned.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    example: "5eb12e197e06a76ccdefc121"
-                  title:
-                    type: string
-                    example: "Mr"
-                  firstName:
-                    type: string
-                    example: "Jason"
-                  lastName:
-                    type: string
-                    example: "Watmore"
-                  email:
-                    type: string
-                    example: "jason@example.com"
-                  role:
-                    type: string
-                    example: "Admin"
-                  created:
-                    type: string
-                    example: "2020-05-05T09:12:57.848Z"
-        "400":
-          description: Email is already registered
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Email 'jason@example.com' is already registered"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-  /accounts/{id}:
-    parameters:
-      - in: path
-        name: id
-        description: Account id
-        required: true
-        example: "5eb12e197e06a76ccdefc121"
-        schema:
-          type: string
-    get:
-      summary: Get a single account by id
-      description: Admin users can access any account, regular users are restricted to their own account.
-      operationId: getAccountById
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Details of the specified account
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    example: "5eb12e197e06a76ccdefc121"
-                  title:
-                    type: string
-                    example: "Mr"
-                  firstName:
-                    type: string
-                    example: "Jason"
-                  lastName:
-                    type: string
-                    example: "Watmore"
-                  email:
-                    type: string
-                    example: "jason@example.com"
-                  role:
-                    type: string
-                    example: "Admin"
-                  created:
-                    type: string
-                    example: "2020-05-05T09:12:57.848Z"
-                  updated:
-                    type: string
-                    example: "2020-05-08T03:11:21.553Z"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-    put:
-      summary: Update an account
-      description: Admin users can update any account including role, regular users are restricted to their own account and cannot update role.
-      operationId: updateAccount
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                title:
-                  type: string
-                  example: "Mr"
-                firstName:
-                  type: string
-                  example: "Jason"
-                lastName:
-                  type: string
-                  example: "Watmore"
-                email:
-                  type: string
-                  example: "jason@example.com"
-                password:
-                  type: string
-                  example: "pass123"
-                confirmPassword:
-                  type: string
-                  example: "pass123"
-                role:
-                  type: string
-                  enum: [Admin, User]
-      responses:
-        "200":
-          description: Account updated successfully. The details of the updated account are returned.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    example: "5eb12e197e06a76ccdefc121"
-                  title:
-                    type: string
-                    example: "Mr"
-                  firstName:
-                    type: string
-                    example: "Jason"
-                  lastName:
-                    type: string
-                    example: "Watmore"
-                  email:
-                    type: string
-                    example: "jason@example.com"
-                  role:
-                    type: string
-                    example: "Admin"
-                  created:
-                    type: string
-                    example: "2020-05-05T09:12:57.848Z"
-                  updated:
-                    type: string
-                    example: "2020-05-08T03:11:21.553Z"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-    delete:
-      summary: Delete an account
-      description: Admin users can delete any account, regular users are restricted to their own account.
-      operationId: deleteAccount
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Account deleted successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Account deleted successfully"
-        "404":
-          $ref: "#/components/responses/NotFoundError"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
-
-components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-  responses:
-    UnauthorizedError:
-      description: Access token is missing or invalid, or the user does not have access to perform the action
-      content:
-        application/json:
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "Unauthorized"
-    NotFoundError:
-      description: Not Found
-      content:
-        application/json:
-          schema:
-            type: object
-            properties:
-              message:
-                type: string
-                example: "Not Found"
-
-
-================================================================================
-File: _helpers\db.js
-Size: 1.45 kB
-================================================================================
-
-const config = require('config.json');
-const mysql = require('mysql2/promise');
-const { Sequelize } = require('sequelize');
-
-module.exports = db = {};
-
-initialize();
-
-async function initialize() {
-    const { host, port, user, password, database } = config.database;
-
-    // Create database if it doesn't exist
-    const connection = await mysql.createConnection({ host, port, user, password });
-    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
-
-    // Connect with Sequelize
-    const sequelize = new Sequelize(database, user, password, { dialect: 'mysql' });
-
-    // Import models
-    db.Account = require('../accounts/account.model.js')(sequelize);
-    db.RefreshToken = require('../accounts/refresh-token.model.js')(sequelize);
-    db.Employee = require('../employees/employee.model.js')(sequelize);
-
-    // ----------------- Relationships -----------------
-
-    // Account ↔ RefreshTokens (1 → many)
-    db.Account.hasMany(db.RefreshToken, { onDelete: 'CASCADE' });
-    db.RefreshToken.belongsTo(db.Account);
-
-    // Account ↔ Employee (1 → 1 via EmployeeID = Account.id)
-    db.Account.hasOne(db.Employee, { foreignKey: 'EmployeeID', sourceKey: 'id', onDelete: 'CASCADE' });
-    db.Employee.belongsTo(db.Account, { foreignKey: 'EmployeeID', targetKey: 'id', onDelete: 'CASCADE' });
-
-    // Sync DB
-    await sequelize.sync({ alter: true }); // updates schema safely
-
-}
-
-
-================================================================================
-File: _helpers\role.js
-Size: 63 B
-================================================================================
-
-module.exports = {
-    Admin: 'Admin',
-    User: 'User'
-  };
-
-================================================================================
-File: _helpers\send-email.js
-Size: 324 B
-================================================================================
-
-const nodemailer = require('nodemailer');
-const config = require('config.json');
-
-module.exports = sendEmail;
-
-async function sendEmail({ to, subject, html, from = config.emailFrom }) {
-  const transporter = nodemailer.createTransport(config.smtpOptions);
-  await transporter.sendMail({ from, to, subject, html });
-}
-
-================================================================================
-File: _helpers\swagger.js
-Size: 305 B
-================================================================================
-
-const express = require('express');
-const router = express.Router();
-const swaggerUi = require('swagger-ui-express');
-const YAML = require('yamljs');
-const swaggerDocument = YAML.load('./swagger.yaml');
-
-router.use('/', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-
-module.exports = router;
-
-================================================================================
-File: _middleware\authorize.js
-Size: 2.82 kB
-================================================================================
-
-const { expressjwt } = require('express-jwt');
-const config = require('config.json');
-const db = require('_helpers/db');
-
-module.exports = authorize;
-
-function authorize(roles = []) {
-  // allow single role string
-  if (typeof roles === 'string') {
-    roles = [roles];
-  }
-
-  return [
-    // authenticate JWT token and attach decoded payload to req.user
-    expressjwt({
-      secret: config.secret,
-      algorithms: ['HS256'],
-      requestProperty: 'user', // ensure payload is on req.user (not req.auth)
-      // support tokens from Authorization header (Bearer) or cookie named 'refreshToken'
-      getToken: req => {
-        if (req.headers && req.headers.authorization) {
-          const parts = req.headers.authorization.split(' ');
-          if (parts.length === 2 && /^Bearer$/i.test(parts[0])) {
-            return parts[1];
-          }
-        }
-        if (req.cookies && req.cookies.refreshToken) {
-          return req.cookies.refreshToken;
-        }
-        return null;
-      }
-    }),
-
-    // authorize based on user role and attach helper properties
-    async (req, res, next) => {
-      try {
-        // express-jwt should populate req.user; if not, return 401
-        if (!req.user) {
-          console.error('authorize: no req.user (token missing or invalid)');
-          return res.status(401).json({ message: 'Unauthorized' });
-        }
-
-        // token payload may use different claim names
-        const userId = req.user.id || req.user.sub || req.user.userId;
-        if (!userId) {
-          console.error('authorize: token missing id/sub/userId claim', req.user);
-          return res.status(401).json({ message: 'Unauthorized' });
-        }
-
-        // load account from DB
-        const account = await db.Account.findByPk(userId);
-        if (!account) {
-          console.error('authorize: no account found for id', userId);
-          return res.status(401).json({ message: 'Unauthorized' });
-        }
-
-        // check role if roles were provided
-        if (roles.length && !roles.includes(account.role)) {
-          console.warn(`authorize: account role "${account.role}" not authorized for ${JSON.stringify(roles)}`);
-          return res.status(401).json({ message: 'Unauthorized' });
-        }
-
-        // attach role and ownsToken helper to req.user (keep original decoded payload too)
-        req.user.role = account.role;
-        const refreshTokens = await account.getRefreshTokens();
-        req.user.ownsToken = token => !!refreshTokens.find(x => x.token === token);
-
-        next();
-      } catch (err) {
-        console.error('authorize middleware error:', err);
-        // return 500 for unexpected errors
-        return res.status(500).json({ message: err.message });
-      }
-    }
-  ];
-}
-
-
-================================================================================
-File: _middleware\error-handler.js
-Size: 563 B
-================================================================================
-
-module.exports = errorHandler;
-
-function errorHandler(err, req, res, next) {
-  switch (true) {
-    case typeof err === 'string':
-      // custom application error
-      const is404 = err.toLowerCase().endsWith('not found');
-      const statusCode = is404 ? 404 : 400;
-      return res.status(statusCode).json({ message: err });
-    case err.name === 'UnauthorizedError':
-      // jwt authentication error
-      return res.status(401).json({ message: 'Unauthorized' });
-    default:
-      return res.status(500).json({ message: err.message });
-  }
-}
-
-================================================================================
-File: _middleware\validate-request.js
-Size: 470 B
-================================================================================
-
-module.exports = validateRequest;
-
-function validateRequest(req, next, schema) {
-  const options = {
-    abortEarly: false, // include all errors
-    allowUnknown: true, // ignore unknown props
-    stripUnknown: true // remove unknown props
-  };
-
-  const { error, value } = schema.validate(req.body, options);
-  if (error) {
-    next(`Validation error: ${error.details.map(x => x.message).join(', ')}`);
-  } else {
-    req.body = value;
-    next();
-  }
-}
-
-
-================================================================================
 File: config.json
 Size: 536 B
 ================================================================================
@@ -3018,7 +1006,7 @@ module.exports = router;
 
 ================================================================================
 File: employees\employee.controller.js
-Size: 3.48 kB
+Size: 3.51 kB
 ================================================================================
 
 // employees/employees.controller.js
@@ -3031,11 +1019,11 @@ const db = require('../_helpers/db'); // needed for direct employee lookup
 
 // ===== Routes =====
 router.get('/', /* authorize(Role.Admin), */ getAll);
-router.get('/next-id', authorize(Role.Admin), getNextId);
-router.get('/:id', authorize(Role.Admin), getById);
-router.post('/', authorize(Role.Admin), create);
-router.put('/:id', authorize(Role.Admin), update);
-router.delete('/:id', authorize(Role.Admin), _delete);
+router.get('/next-id', /* authorize(Role.Admin), */ getNextId);
+router.get('/:id', /* authorize(Role.Admin), */ getById);
+router.post('/', /* authorize(Role.Admin), */ create);
+router.put('/:id', /* authorize(Role.Admin), */ update);
+router.delete('/:id', /* authorize(Role.Admin), */ _delete);
 
 // 🚀 New: Transfer employee to another department
 router.post('/:id/transfer', /* authorize(Role.Admin), */ transferDepartment);
@@ -3251,7 +1239,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: employees\employee.service.js
-Size: 5.27 kB
+Size: 6.73 kB
 ================================================================================
 
 // employees/employee.service.js
@@ -3267,12 +1255,12 @@ module.exports = {
 };
 
 // ====== QUERIES ======
-
 async function getAll() {
   return await db.Employee.findAll({
     include: [
       { model: db.Account, as: 'Account' },
-      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] }
+      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] },
+      { model: db.Workflow }
     ],
     order: [['created', 'DESC']]
   });
@@ -3282,7 +1270,8 @@ async function getById(id) {
   return await db.Employee.findByPk(id, {
     include: [
       { model: db.Account, as: 'Account' },
-      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] }
+      { model: db.Department, as: 'Department', attributes: ['id', 'departmentName', 'employeeCounts'] },
+      { model: db.Workflow }
     ]
   });
 }
@@ -3299,7 +1288,6 @@ async function generateNextEmployeeID() {
 }
 
 // ====== CREATE ======
-
 async function resolveAccount(params) {
   if (params.accountId) {
     const account = await db.Account.findByPk(params.accountId);
@@ -3331,7 +1319,6 @@ async function create(params) {
   };
 
   let employee;
-
   if (params.EmployeeID) {
     if (await db.Employee.findByPk(params.EmployeeID)) {
       throw `EmployeeID ${params.EmployeeID} already exists`;
@@ -3357,19 +1344,28 @@ async function create(params) {
     }
   }
 
-  // ✅ update department employeeCounts
+  // ✅ update department count
   if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
+
+  // ✅ log onboarding workflow
+  const dept = employee.departmentId ? await db.Department.findByPk(employee.departmentId) : null;
+  await db.Workflow.create({
+    employeeId: employee.EmployeeID,
+    type: 'Onboarding',
+    details: `Onboarded to ${dept ? dept.departmentName : 'No Department'} as ${employee.position || 'Unassigned'} on ${employee.hireDate || 'N/A'}`,
+    status: 'pending'
+  });
 
   return await getById(employee.EmployeeID);
 }
 
 // ====== UPDATE ======
-
 async function update(id, params) {
   const employee = await db.Employee.findByPk(id);
   if (!employee) throw 'Employee not found';
 
-  const oldDept = employee.departmentId;
+  const oldDeptId = employee.departmentId;
+  const oldDept = oldDeptId ? await db.Department.findByPk(oldDeptId) : null;
 
   if (params.accountId && params.accountId !== employee.accountId) {
     const account = await db.Account.findByPk(params.accountId);
@@ -3391,32 +1387,55 @@ async function update(id, params) {
 
   await employee.save();
 
-  // ✅ update department counts
-  if (params.departmentId && params.departmentId !== oldDept) {
-    if (oldDept) await updateDepartmentCount(oldDept);
+  // ✅ handle department transfer
+  if (params.departmentId && params.departmentId !== oldDeptId) {
+    if (oldDeptId) await updateDepartmentCount(oldDeptId);
     if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
+
+    const newDept = employee.departmentId ? await db.Department.findByPk(employee.departmentId) : null;
+    await db.Workflow.create({
+      employeeId: employee.EmployeeID,
+      type: 'Department Transfer',
+      details: `From: ${oldDept ? oldDept.departmentName : 'N/A'} → To: ${newDept ? newDept.departmentName : 'N/A'}`,
+      status: 'pending'
+    });
   } else if (params.departmentId) {
     await updateDepartmentCount(employee.departmentId);
+  }
+
+  // ✅ log generic update
+  if (!params.departmentId || params.departmentId === oldDeptId) {
+    await db.Workflow.create({
+      employeeId: employee.EmployeeID,
+      type: 'Employee Updated',
+      details: `Updated fields: ${Object.keys(params).join(', ')}`,
+      status: 'completed'
+    });
   }
 
   return await getById(employee.EmployeeID);
 }
 
 // ====== DELETE ======
-
 async function _delete(id) {
   const employee = await db.Employee.findByPk(id);
   if (!employee) throw 'Employee not found';
 
-  const deptId = employee.departmentId;
+  const dept = employee.departmentId ? await db.Department.findByPk(employee.departmentId) : null;
+
+  await db.Workflow.create({
+    employeeId: employee.EmployeeID,
+    type: 'Employee Deleted',
+    details: `Removed from ${dept ? dept.departmentName : 'No Department'}`,
+    status: 'completed'
+  });
+
   await employee.destroy();
 
-  // ✅ update department count
-  if (deptId) await updateDepartmentCount(deptId);
+  if (dept) await updateDepartmentCount(dept.id);
 }
 
 // ====== HELPER ======
-
 async function updateDepartmentCount(departmentId) {
   if (!departmentId) return;
   const count = await db.Employee.count({ where: { departmentId } });
@@ -4561,69 +2580,77 @@ components:
 
 ================================================================================
 File: workflows\workflow.controller.js
-Size: 1.48 kB
+Size: 2.03 kB
 ================================================================================
 
+// workflows/workflow.controller.js
 const express = require('express');
 const router = express.Router();
 const workflowService = require('./workflow.service');
 
-// Create a new workflow
+// ====== CREATE WORKFLOW ======
 router.post('/', async (req, res, next) => {
   try {
     const workflow = await workflowService.create(req.body);
     res.status(201).json(workflow);
   } catch (err) {
+    console.error('❌ Error creating workflow:', err);
     next(err);
   }
 });
 
-// Get all workflows
+// ====== GET ALL WORKFLOWS (with optional employeeId filter) ======
 router.get('/', async (req, res, next) => {
   try {
-    const workflows = await workflowService.getAll();
+    const { employeeId } = req.query;
+    const workflows = await workflowService.getAll(employeeId);
     res.json(workflows);
   } catch (err) {
+    console.error('❌ Error fetching workflows:', err);
     next(err);
   }
 });
 
-// Get workflow by id
+// ====== GET WORKFLOW BY ID ======
 router.get('/:id', async (req, res, next) => {
   try {
     const workflow = await workflowService.getById(req.params.id);
     res.json(workflow);
   } catch (err) {
+    console.error('❌ Error fetching workflow by ID:', err);
     next(err);
   }
 });
 
-// Update workflow
+// ====== UPDATE WORKFLOW ======
 router.put('/:id', async (req, res, next) => {
   try {
     const workflow = await workflowService.update(req.params.id, req.body);
     res.json(workflow);
   } catch (err) {
+    console.error('❌ Error updating workflow:', err);
     next(err);
   }
 });
 
-// Approve workflow
+// ====== APPROVE WORKFLOW ======
 router.put('/:id/approve', async (req, res, next) => {
   try {
     const workflow = await workflowService.approve(req.params.id);
     res.json(workflow);
   } catch (err) {
+    console.error('❌ Error approving workflow:', err);
     next(err);
   }
 });
 
-// Reject workflow
+// ====== REJECT WORKFLOW ======
 router.put('/:id/reject', async (req, res, next) => {
   try {
     const workflow = await workflowService.reject(req.params.id);
     res.json(workflow);
   } catch (err) {
+    console.error('❌ Error rejecting workflow:', err);
     next(err);
   }
 });
@@ -4633,9 +2660,10 @@ module.exports = router;
 
 ================================================================================
 File: workflows\workflow.model.js
-Size: 827 B
+Size: 945 B
 ================================================================================
 
+// workflows/workflow.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
@@ -4647,19 +2675,20 @@ module.exports = (sequelize) => {
     },
     employeeId: {
       type: DataTypes.STRING(50),
-      allowNull: false
+      allowNull: false,
+      references: { model: 'Employees', key: 'EmployeeID' }, // FK link
+      onDelete: 'CASCADE'
     },
     type: {
       type: DataTypes.STRING(50),
-      allowNull: false,
-      defaultValue: 'transfer'
+      allowNull: false
     },
     details: {
-      type: DataTypes.TEXT, // allow JSON string with fromDeptId/toDeptId/etc.
+      type: DataTypes.JSON, // store structured info (dept transfer, changes, etc.)
       allowNull: false
     },
     status: {
-      type: DataTypes.ENUM('pending', 'approved', 'rejected'),
+      type: DataTypes.ENUM('pending', 'approved', 'rejected', 'completed'),
       allowNull: false,
       defaultValue: 'pending'
     }
@@ -4674,49 +2703,11 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: workflows\workflow.service.js
-Size: 983 B
+Size: 2.85 kB
 ================================================================================
 
-const db = require('../_helpers/db');
-
-async function create(params) {
-  return await db.Workflow.create(params);
-}
-
-async function getAll() {
-  return await db.Workflow.findAll();
-}
-
-async function getById(id) {
-  return await getWorkflow(id);
-}
-
-async function update(id, params) {
-  const workflow = await getWorkflow(id);
-  Object.assign(workflow, params);
-  await workflow.save();
-  return workflow;
-}
-
-async function approve(id) {
-  const workflow = await getWorkflow(id);
-  workflow.status = 'approved';
-  await workflow.save();
-  return workflow;
-}
-
-async function reject(id) {
-  const workflow = await getWorkflow(id);
-  workflow.status = 'rejected';
-  await workflow.save();
-  return workflow;
-}
-
-async function getWorkflow(id) {
-  const wf = await db.Workflow.findByPk(id);
-  if (!wf) throw new Error('Workflow not found');
-  return wf;
-}
+// workflows/workflow.service.js
+const db = require('_helpers/db');
 
 module.exports = {
   create,
@@ -4727,10 +2718,107 @@ module.exports = {
   reject
 };
 
+// ====== CREATE ======
+async function create(params) {
+  // ensure employee exists
+  const employee = await db.Employee.findByPk(params.employeeId, {
+    include: [{ model: db.Department, as: 'Department' }]
+  });
+  if (!employee) throw `Employee ${params.employeeId} not found`;
+
+  // build readable details string
+  let details = '';
+  switch (params.type) {
+    case 'Onboarding':
+      details = `Onboarded to ${employee.Department ? employee.Department.departmentName : 'No Department'} as ${employee.position || 'Unassigned'} on ${employee.hireDate || 'N/A'}`;
+      break;
+
+    case 'Department Transfer':
+      details = `From: ${params.fromDepartmentName || 'N/A'} → To: ${params.toDepartmentName || 'N/A'}`;
+      break;
+
+    case 'Employee Updated':
+      details = params.changes
+        ? `Updated fields: ${Object.keys(params.changes).join(', ')}`
+        : 'Employee information updated';
+      break;
+
+    case 'Employee Deleted':
+      details = `Removed from ${params.departmentName || 'No Department'}`;
+      break;
+
+    default:
+      details = params.details || 'General workflow logged';
+      break;
+  }
+
+  return await db.Workflow.create({
+    employeeId: params.employeeId,
+    type: params.type || 'General',
+    details,
+    status: params.status || 'pending'
+  });
+}
+
+// ====== GET ALL (optional filter by employeeId) ======
+async function getAll(employeeId) {
+  const where = {};
+  if (employeeId) {
+    where.employeeId = employeeId;
+  }
+
+  const workflows = await db.Workflow.findAll({
+    where,
+    include: [{ model: db.Employee }],
+    order: [['createdAt', 'DESC']]
+  });
+
+  return workflows.map(wf => wf.toJSON());
+}
+
+// ====== GET BY ID ======
+async function getById(id) {
+  const wf = await db.Workflow.findByPk(id, {
+    include: [{ model: db.Employee }]
+  });
+  if (!wf) throw 'Workflow not found';
+  return wf.toJSON();
+}
+
+// ====== UPDATE ======
+async function update(id, params) {
+  const workflow = await db.Workflow.findByPk(id);
+  if (!workflow) throw 'Workflow not found';
+
+  Object.assign(workflow, params);
+  await workflow.save();
+  return workflow.toJSON();
+}
+
+// ====== APPROVE ======
+async function approve(id) {
+  const workflow = await db.Workflow.findByPk(id);
+  if (!workflow) throw 'Workflow not found';
+
+  workflow.status = 'approved';
+  await workflow.save();
+  return workflow.toJSON();
+}
+
+// ====== REJECT ======
+async function reject(id) {
+  const workflow = await db.Workflow.findByPk(id);
+  if (!workflow) throw 'Workflow not found';
+
+  workflow.status = 'rejected';
+  await workflow.save();
+  return workflow.toJSON();
+}
+
 
 ================================================================================
 File: _helpers\db.js
-Size: 2.85 kB
+Size: 3.06 kB
 ================================================================================
 
 // src/_helpers/db.js
@@ -4802,6 +2890,9 @@ async function initialize() {
   // Account ↔ Request (1 → many)
   db.Account.hasMany(db.Request, { foreignKey: 'accountId', onDelete: 'CASCADE' });
   db.Request.belongsTo(db.Account, { foreignKey: 'accountId' });
+
+  db.Employee.hasMany(db.Workflow, { foreignKey: 'employeeId', sourceKey: 'EmployeeID', onDelete: 'CASCADE' });
+  db.Workflow.belongsTo(db.Employee, { foreignKey: 'employeeId', targetKey: 'EmployeeID' });
 
   // 5) Sync DB schema
   try {

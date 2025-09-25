@@ -1,63 +1,71 @@
+// workflows/workflow.controller.js
 const express = require('express');
 const router = express.Router();
 const workflowService = require('./workflow.service');
 
-// Create a new workflow
+// ====== CREATE WORKFLOW ======
 router.post('/', async (req, res, next) => {
   try {
     const workflow = await workflowService.create(req.body);
     res.status(201).json(workflow);
   } catch (err) {
+    console.error('❌ Error creating workflow:', err);
     next(err);
   }
 });
 
-// Get all workflows
+// ====== GET ALL WORKFLOWS (with optional employeeId filter) ======
 router.get('/', async (req, res, next) => {
   try {
-    const workflows = await workflowService.getAll();
+    const { employeeId } = req.query;
+    const workflows = await workflowService.getAll(employeeId);
     res.json(workflows);
   } catch (err) {
+    console.error('❌ Error fetching workflows:', err);
     next(err);
   }
 });
 
-// Get workflow by id
+// ====== GET WORKFLOW BY ID ======
 router.get('/:id', async (req, res, next) => {
   try {
     const workflow = await workflowService.getById(req.params.id);
     res.json(workflow);
   } catch (err) {
+    console.error('❌ Error fetching workflow by ID:', err);
     next(err);
   }
 });
 
-// Update workflow
+// ====== UPDATE WORKFLOW ======
 router.put('/:id', async (req, res, next) => {
   try {
     const workflow = await workflowService.update(req.params.id, req.body);
     res.json(workflow);
   } catch (err) {
+    console.error('❌ Error updating workflow:', err);
     next(err);
   }
 });
 
-// Approve workflow
+// ====== APPROVE WORKFLOW ======
 router.put('/:id/approve', async (req, res, next) => {
   try {
     const workflow = await workflowService.approve(req.params.id);
     res.json(workflow);
   } catch (err) {
+    console.error('❌ Error approving workflow:', err);
     next(err);
   }
 });
 
-// Reject workflow
+// ====== REJECT WORKFLOW ======
 router.put('/:id/reject', async (req, res, next) => {
   try {
     const workflow = await workflowService.reject(req.params.id);
     res.json(workflow);
   } catch (err) {
+    console.error('❌ Error rejecting workflow:', err);
     next(err);
   }
 });
