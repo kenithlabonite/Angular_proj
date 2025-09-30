@@ -7,13 +7,13 @@ const Role = require('_helpers/role');
 const db = require('../_helpers/db'); // needed for direct employee lookup
 
 // ===== Routes =====
-router.get('/', /* authorize(Role.Admin), */ getAll);
-router.get('/next-id', /* authorize(Role.Admin), */ getNextId);
-router.get('/:id', /* authorize(Role.Admin), */ getById);
-router.post('/', /* authorize(Role.Admin), */ create);
-router.put('/:id', /* authorize(Role.Admin), */ update);
-router.delete('/:id', /* authorize(Role.Admin), */ _delete);
-router.post('/:id/transfer', /* authorize(Role.Admin), */ transferDepartment);
+router.get('/', authorize(Role.Admin), getAll);
+router.get('/next-id', authorize(Role.Admin), getNextId);
+router.get('/:id', authorize(Role.Admin), getById);
+router.post('/', authorize(Role.Admin), create);
+router.put('/:id', authorize(Role.Admin), update);
+router.delete('/:id', authorize(Role.Admin), _delete);
+router.post('/:id/transfer', authorize(Role.Admin), transferDepartment);
 
 module.exports = router;
 
@@ -59,9 +59,29 @@ async function getById(req, res, next) {
   }
 }
 
-// Create new employee
+// ✅ Create new employee with hireDate validation
 async function create(req, res, next) {
   try {
+    const { hireDate } = req.body;
+
+    if (!hireDate) {
+      return res.status(400).json({ message: 'Hire date is required' });
+    }
+
+    const inputDate = new Date(hireDate);
+    const today = new Date();
+
+    // Normalize both to YYYY-MM-DD (ignore time)
+    const formatDate = d => d.toISOString().split('T')[0];
+    const hireDateOnly = formatDate(inputDate);
+    const todayOnly = formatDate(today);
+
+    // ❌ Reject if hireDate is in the future
+    if (hireDateOnly > todayOnly) {
+      return res.status(400).json({ message: 'Hire date cannot be in the future.' });
+    }
+
+    // ✅ Continue creating employee
     const employee = await employeeService.create(req.body);
     res.status(201).json(employee);
   } catch (err) {
@@ -70,9 +90,24 @@ async function create(req, res, next) {
   }
 }
 
-// Update existing employee
+// ✅ Update existing employee with hireDate validation
 async function update(req, res, next) {
   try {
+    const { hireDate } = req.body;
+
+    if (hireDate) {
+      const inputDate = new Date(hireDate);
+      const today = new Date();
+
+      const formatDate = d => d.toISOString().split('T')[0];
+      const hireDateOnly = formatDate(inputDate);
+      const todayOnly = formatDate(today);
+
+      if (hireDateOnly > todayOnly) {
+        return res.status(400).json({ message: 'Hire date cannot be in the future.' });
+      }
+    }
+
     const employee = await employeeService.update(req.params.id, req.body);
     res.json(employee);
   } catch (err) {
@@ -92,7 +127,7 @@ async function _delete(req, res, next) {
   }
 }
 
-// ===== New Transfer Handler =====
+// Transfer employee to another department
 async function transferDepartment(req, res, next) {
   try {
     const employeeId = req.params.id;
@@ -103,7 +138,9 @@ async function transferDepartment(req, res, next) {
     }
 
     const employee = await db.Employee.findByPk(employeeId);
-    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
 
     const fromDeptId = employee.departmentId;
     employee.departmentId = toDeptId;

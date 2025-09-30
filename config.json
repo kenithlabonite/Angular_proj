@@ -3,7 +3,7 @@
         "host": "localhost",
         "port": 3306,
         "user": "root",
-        "password": "root",
+        "password": "bg5yi45i",
         "database": "node-mysql-signup-verification-api"
     },
     "secret": "49857eae-5b2d-4e74-b5e7-99953f347936",
