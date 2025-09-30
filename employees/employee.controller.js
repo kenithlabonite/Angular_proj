@@ -7,13 +7,13 @@ const Role = require('_helpers/role');
 const db = require('../_helpers/db'); // needed for direct employee lookup
 
 // ===== Routes =====
-router.get('/', authorize(Role.Admin), getAll);
-router.get('/next-id', authorize(Role.Admin), getNextId);
-router.get('/:id', authorize(Role.Admin), getById);
-router.post('/', authorize(Role.Admin), create);
-router.put('/:id', authorize(Role.Admin), update);
+router.get('/', /* authorize(Role.Admin), */ getAll);
+router.get('/next-id', /* authorize(Role.Admin), */ getNextId);
+router.get('/:id', /* authorize(Role.Admin), */ getById);
+router.post('/', /* authorize(Role.Admin), */ create);
+router.put('/:id', /* authorize(Role.Admin), */ update);
 router.delete('/:id', authorize(Role.Admin), _delete);
-router.post('/:id/transfer', authorize(Role.Admin), transferDepartment);
+router.post('/:id/transfer', /* authorize(Role.Admin), */ transferDepartment);
 
 module.exports = router;
 
