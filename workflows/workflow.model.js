@@ -1,101 +1,36 @@
-// employees/employee.model.js
+// workflows/workflow.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
-  const attributes = {
-    EmployeeID: {
-      type: DataTypes.INTEGER.UNSIGNED,   // 🔑 Changed from STRING(32)
-      allowNull: false,
-      autoIncrement: true,                // 🔑 Auto-increment PK
-      primaryKey: true,
-      field: 'EmployeeID'
+  const Workflow = sequelize.define('Workflow', {
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true
     },
-
-    accountId: {
-      type: DataTypes.INTEGER.UNSIGNED,
+    employeeId: {
+      type: DataTypes.STRING(50),
       allowNull: false,
-      field: 'accountId',
-      references: {
-        model: 'accounts',
-        key: 'id'
-      },
-      onUpdate: 'CASCADE',
+      references: { model: 'Employees', key: 'EmployeeID' }, // FK link
       onDelete: 'CASCADE'
     },
-
-    position: {
-      type: DataTypes.STRING,
-      allowNull: true
+    type: {
+      type: DataTypes.STRING(50),
+      allowNull: false
     },
-
-    departmentId: {
-      type: DataTypes.INTEGER.UNSIGNED,
-      allowNull: true,
-      field: 'DepartmentID',
-      references: {
-        model: 'departments',
-        key: 'id'
-      },
-      onUpdate: 'CASCADE',
-      onDelete: 'SET NULL'
+    details: {
+      type: DataTypes.JSON, // store structured info (dept transfer, changes, etc.)
+      allowNull: false
     },
-
-    hireDate: {
-      type: DataTypes.DATEONLY,
-      allowNull: true,
-      field: 'hireDate'
-    },
-
     status: {
-      type: DataTypes.ENUM('active', 'inactive'),
+      type: DataTypes.ENUM('pending', 'approved', 'rejected', 'completed'),
       allowNull: false,
-      defaultValue: 'active'
-    },
-
-    createdAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-      field: 'created'
-    },
-    updatedAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-      field: 'updated'
+      defaultValue: 'pending'
     }
-  };
+  }, {
+    tableName: 'Workflows',
+    timestamps: true // adds createdAt & updatedAt
+  });
 
-  const options = {
-    tableName: 'employees',
-    timestamps: true,
-    createdAt: 'created',
-    updatedAt: 'updated'
-  };
-
-  const Employee = sequelize.define('Employee', attributes, options);
-
-  Employee.associate = (models) => {
-    if (models.Account) {
-      Employee.belongsTo(models.Account, {
-        foreignKey: 'accountId',
-        targetKey: 'id',
-        as: 'Account'
-      });
-    }
-    if (models.Department) {
-      Employee.belongsTo(models.Department, {
-        foreignKey: 'departmentId',
-        targetKey: 'id',
-        as: 'Department'
-      });
-    }
-    if (models.Workflow) {
-      Employee.hasMany(models.Workflow, {
-        foreignKey: 'employeeId',
-        sourceKey: 'EmployeeID',
-        as: 'Workflows'
-      });
-    }
-  };
-
-  return Employee;
+  return Workflow;
 };

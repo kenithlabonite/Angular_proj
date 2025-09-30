@@ -1,4 +1,4 @@
-// config.js
+
 module.exports = {
   database: {
     host: process.env.DB_HOST || 'localhost',
