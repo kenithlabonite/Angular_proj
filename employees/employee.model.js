@@ -4,10 +4,10 @@ const { DataTypes } = require('sequelize');
 module.exports = (sequelize) => {
   const attributes = {
     EmployeeID: {
-      type: DataTypes.STRING(32),
+      type: DataTypes.INTEGER.UNSIGNED,   // 🔑 Changed from STRING(32)
       allowNull: false,
+      autoIncrement: true,                // 🔑 Auto-increment PK
       primaryKey: true,
-      unique: true,
       field: 'EmployeeID'
     },
 
@@ -28,7 +28,6 @@ module.exports = (sequelize) => {
       allowNull: true
     },
 
-    // ✅ foreign key to departments.id
     departmentId: {
       type: DataTypes.INTEGER.UNSIGNED,
       allowNull: true,
@@ -87,6 +86,13 @@ module.exports = (sequelize) => {
         foreignKey: 'departmentId',
         targetKey: 'id',
         as: 'Department'
+      });
+    }
+    if (models.Workflow) {
+      Employee.hasMany(models.Workflow, {
+        foreignKey: 'employeeId',
+        sourceKey: 'EmployeeID',
+        as: 'Workflows'
       });
     }
   };
