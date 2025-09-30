@@ -766,7 +766,7 @@ function model(sequelize) {
 
 ================================================================================
 File: config.json
-Size: 536 B
+Size: 540 B
 ================================================================================
 
 {
@@ -774,7 +774,7 @@ Size: 536 B
         "host": "localhost",
         "port": 3306,
         "user": "root",
-        "password": "root",
+        "password": "bg5yi45i",
         "database": "node-mysql-signup-verification-api"
     },
     "secret": "49857eae-5b2d-4e74-b5e7-99953f347936",
@@ -1006,7 +1006,7 @@ module.exports = router;
 
 ================================================================================
 File: employees\employee.controller.js
-Size: 3.51 kB
+Size: 4.58 kB
 ================================================================================
 
 // employees/employees.controller.js
@@ -1018,15 +1018,13 @@ const Role = require('_helpers/role');
 const db = require('../_helpers/db'); // needed for direct employee lookup
 
 // ===== Routes =====
-router.get('/', /* authorize(Role.Admin), */ getAll);
-router.get('/next-id', /* authorize(Role.Admin), */ getNextId);
-router.get('/:id', /* authorize(Role.Admin), */ getById);
-router.post('/', /* authorize(Role.Admin), */ create);
-router.put('/:id', /* authorize(Role.Admin), */ update);
-router.delete('/:id', /* authorize(Role.Admin), */ _delete);
-
-// 🚀 New: Transfer employee to another department
-router.post('/:id/transfer', /* authorize(Role.Admin), */ transferDepartment);
+router.get('/', authorize(Role.Admin), getAll);
+router.get('/next-id', authorize(Role.Admin), getNextId);
+router.get('/:id', authorize(Role.Admin), getById);
+router.post('/', authorize(Role.Admin), create);
+router.put('/:id', authorize(Role.Admin), update);
+router.delete('/:id', authorize(Role.Admin), _delete);
+router.post('/:id/transfer', authorize(Role.Admin), transferDepartment);
 
 module.exports = router;
 
@@ -1072,9 +1070,29 @@ async function getById(req, res, next) {
   }
 }
 
-// Create new employee
+// ✅ Create new employee with hireDate validation
 async function create(req, res, next) {
   try {
+    const { hireDate } = req.body;
+
+    if (!hireDate) {
+      return res.status(400).json({ message: 'Hire date is required' });
+    }
+
+    const inputDate = new Date(hireDate);
+    const today = new Date();
+
+    // Normalize both to YYYY-MM-DD (ignore time)
+    const formatDate = d => d.toISOString().split('T')[0];
+    const hireDateOnly = formatDate(inputDate);
+    const todayOnly = formatDate(today);
+
+    // ❌ Reject if hireDate is in the future
+    if (hireDateOnly > todayOnly) {
+      return res.status(400).json({ message: 'Hire date cannot be in the future.' });
+    }
+
+    // ✅ Continue creating employee
     const employee = await employeeService.create(req.body);
     res.status(201).json(employee);
   } catch (err) {
@@ -1083,9 +1101,24 @@ async function create(req, res, next) {
   }
 }
 
-// Update existing employee
+// ✅ Update existing employee with hireDate validation
 async function update(req, res, next) {
   try {
+    const { hireDate } = req.body;
+
+    if (hireDate) {
+      const inputDate = new Date(hireDate);
+      const today = new Date();
+
+      const formatDate = d => d.toISOString().split('T')[0];
+      const hireDateOnly = formatDate(inputDate);
+      const todayOnly = formatDate(today);
+
+      if (hireDateOnly > todayOnly) {
+        return res.status(400).json({ message: 'Hire date cannot be in the future.' });
+      }
+    }
+
     const employee = await employeeService.update(req.params.id, req.body);
     res.json(employee);
   } catch (err) {
@@ -1105,7 +1138,7 @@ async function _delete(req, res, next) {
   }
 }
 
-// ===== New Transfer Handler =====
+// Transfer employee to another department
 async function transferDepartment(req, res, next) {
   try {
     const employeeId = req.params.id;
@@ -1116,7 +1149,9 @@ async function transferDepartment(req, res, next) {
     }
 
     const employee = await db.Employee.findByPk(employeeId);
-    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
 
     const fromDeptId = employee.departmentId;
     employee.departmentId = toDeptId;
@@ -1239,7 +1274,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: employees\employee.service.js
-Size: 6.73 kB
+Size: 7.39 kB
 ================================================================================
 
 // employees/employee.service.js
@@ -1253,6 +1288,8 @@ module.exports = {
   delete: _delete,
   generateNextEmployeeID
 };
+
+const ALLOWED_STATUS = ['active', 'inactive'];
 
 // ====== QUERIES ======
 async function getAll() {
@@ -1302,9 +1339,16 @@ async function resolveAccount(params) {
   throw 'Please supply accountId or email for related account';
 }
 
+function normalizeStatus(raw) {
+  const s = (raw === undefined || raw === null) ? '' : String(raw).trim().toLowerCase();
+  return s;
+}
+
 async function create(params) {
   const account = await resolveAccount(params);
-  const status = (params.status || 'active').toString().toLowerCase();
+
+  const incomingStatus = normalizeStatus(params.status) || 'active';
+  if (!ALLOWED_STATUS.includes(incomingStatus)) throw 'Invalid status';
 
   const existing = await db.Employee.findOne({ where: { accountId: account.id } });
   if (existing) throw 'Employee for this account already exists';
@@ -1314,7 +1358,7 @@ async function create(params) {
     position: params.position || null,
     departmentId: params.departmentId || null,
     hireDate: params.hireDate || null,
-    status,
+    status: incomingStatus,
     created: new Date()
   };
 
@@ -1326,6 +1370,7 @@ async function create(params) {
     employee = new db.Employee({ ...base, EmployeeID: params.EmployeeID });
     await employee.save();
   } else {
+    // try to generate unique EmployeeID a few times
     for (let attempt = 1; attempt <= 5; attempt++) {
       const candidateId = await generateNextEmployeeID();
       try {
@@ -1342,18 +1387,17 @@ async function create(params) {
         throw err;
       }
     }
+    if (!employee) throw 'Failed to generate unique EmployeeID';
   }
 
-  // ✅ update department count
   if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
 
-  // ✅ log onboarding workflow
   const dept = employee.departmentId ? await db.Department.findByPk(employee.departmentId) : null;
   await db.Workflow.create({
     employeeId: employee.EmployeeID,
     type: 'Onboarding',
     details: `Onboarded to ${dept ? dept.departmentName : 'No Department'} as ${employee.position || 'Unassigned'} on ${employee.hireDate || 'N/A'}`,
-    status: 'pending'
+    status: 'pending' // ✅ fits enum
   });
 
   return await getById(employee.EmployeeID);
@@ -1371,24 +1415,27 @@ async function update(id, params) {
     const account = await db.Account.findByPk(params.accountId);
     if (!account) throw 'Related account not found for new accountId';
     const duplicate = await db.Employee.findOne({ where: { accountId: params.accountId } });
-    if (duplicate) throw 'Employee for this account already exists';
+    if (duplicate && String(duplicate.EmployeeID) !== String(id)) throw 'Employee for this account already exists';
     employee.accountId = params.accountId;
   }
 
   const allowed = ['position', 'departmentId', 'hireDate', 'status'];
   for (const f of allowed) {
-    if (params[f] !== undefined) {
-      employee[f] =
-        f === 'status'
-          ? (params[f] || 'active').toString().toLowerCase()
-          : params[f];
+    if (Object.prototype.hasOwnProperty.call(params, f)) {
+      if (f === 'status') {
+        const normalized = normalizeStatus(params[f]);
+        if (!normalized) throw 'status cannot be empty';
+        if (!ALLOWED_STATUS.includes(normalized)) throw 'Invalid status';
+        employee.status = normalized;
+      } else {
+        employee[f] = params[f] === undefined ? employee[f] : params[f];
+      }
     }
   }
 
   await employee.save();
 
-  // ✅ handle department transfer
-  if (params.departmentId && params.departmentId !== oldDeptId) {
+  if (Object.prototype.hasOwnProperty.call(params, 'departmentId') && params.departmentId !== oldDeptId) {
     if (oldDeptId) await updateDepartmentCount(oldDeptId);
     if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
 
@@ -1397,21 +1444,18 @@ async function update(id, params) {
       employeeId: employee.EmployeeID,
       type: 'Department Transfer',
       details: `From: ${oldDept ? oldDept.departmentName : 'N/A'} → To: ${newDept ? newDept.departmentName : 'N/A'}`,
-      status: 'pending'
+      status: 'pending' // ✅ fits enum
     });
-  } else if (params.departmentId) {
-    await updateDepartmentCount(employee.departmentId);
+  } else if (Object.prototype.hasOwnProperty.call(params, 'departmentId')) {
+    if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
   }
 
-  // ✅ log generic update
-  if (!params.departmentId || params.departmentId === oldDeptId) {
-    await db.Workflow.create({
-      employeeId: employee.EmployeeID,
-      type: 'Employee Updated',
-      details: `Updated fields: ${Object.keys(params).join(', ')}`,
-      status: 'completed'
-    });
-  }
+  /* await db.Workflow.create({
+    employeeId: employee.EmployeeID,
+    type: 'Employee Updated',
+    details: `Updated fields: ${Object.keys(params).join(', ')}`,
+    status: 'approved' // ✅ fits enum
+  }); */
 
   return await getById(employee.EmployeeID);
 }
@@ -1427,7 +1471,7 @@ async function _delete(id) {
     employeeId: employee.EmployeeID,
     type: 'Employee Deleted',
     details: `Removed from ${dept ? dept.departmentName : 'No Department'}`,
-    status: 'completed'
+    status: 'rejected' // ✅ fits enum
   });
 
   await employee.destroy();
