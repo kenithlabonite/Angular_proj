@@ -1,5 +1,4 @@
-﻿// accounts.controller.js
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 const Joi = require('joi');
 const validateRequest = require('_middleware/validate-request');
@@ -254,10 +253,11 @@ function _delete(req, res, next) {
 }
 
 // -------------------- HELPERS --------------------
-
 function setTokenCookie(res, token) {
   const cookieOptions = {
     httpOnly: true,
+    secure: process.env.NODE_ENV === 'production', // only secure cookies in prod
+    sameSite: 'none', // allow cookies across domains (Vercel <-> Render)
     expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
   };
   res.cookie('refreshToken', token, cookieOptions);
