@@ -12,11 +12,11 @@ if (fs.existsSync(configPath)) {
 
 // prefer environment variables in deployment
 const DB = {
-  host: /* process.env.DB_HOST || fileConfig.database?.host ||  */'localhost',
-  port: /* Number(process.env.DB_PORT || fileConfig.database?.port || */ 3306,
-  user: /* process.env.DB_USER || fileConfig.database?.user || */ 'root',
-  password: /* process.env.DB_PASSWORD || fileConfig.database?.password || */ '',
-  database: /* process.env.DB_NAME || fileConfig.database?.database || */ 'node-mysql-signup-verification-api'
+  host: process.env.DB_HOST || fileConfig.database?.host || 'localhost',
+  port: Number(process.env.DB_PORT || fileConfig.database?.port || 3306),
+  user: process.env.DB_USER || fileConfig.database?.user || 'root',
+  password: process.env.DB_PASSWORD || fileConfig.database?.password || '',
+  database: process.env.DB_NAME || fileConfig.database?.database || 'node-mysql-signup-verification-api'
 };
 
 const DB_SYNC = process.env.DB_SYNC || (fileConfig.dbSync || 'alter'); // 'alter' | 'force' | 'none'
