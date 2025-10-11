@@ -6,11 +6,17 @@ const { Sequelize } = require('sequelize');
 
 const configPath = path.resolve(__dirname, '..', 'config.json');
 let fileConfig = {};
+
+// ✅ Load config.json if available
 if (fs.existsSync(configPath)) {
-  try { fileConfig = require(configPath); } catch (e) { /* ignore */ }
+  try {
+    fileConfig = require(configPath);
+  } catch (e) {
+    console.warn('[DB] Failed to parse config.json:', e.message);
+  }
 }
 
-// prefer environment variables in deployment
+// ✅ Database configuration (priority: environment → config.json → default)
 const DB = {
   host: process.env.DB_HOST || fileConfig.database?.host || 'localhost',
   port: Number(process.env.DB_PORT || fileConfig.database?.port || 3306),
@@ -19,11 +25,13 @@ const DB = {
   database: process.env.DB_NAME || fileConfig.database?.database || 'node-mysql-signup-verification-api'
 };
 
-const DB_SYNC = process.env.DB_SYNC || (fileConfig.dbSync || 'alter'); // 'alter' | 'force' | 'none'
+// ✅ Sync and connection settings
+const DB_SYNC = process.env.DB_SYNC || fileConfig.dbSync || 'alter'; // 'alter' | 'force' | 'none'
 const SKIP_DB_CREATE = (process.env.SKIP_DB_CREATE || 'false').toLowerCase() === 'true';
 const MAX_RETRIES = Number(process.env.DB_CONN_RETRIES || 5);
 const RETRY_DELAY_MS = Number(process.env.DB_CONN_RETRY_DELAY_MS || 3000);
 
+// ✅ Exportable db object
 module.exports = db = {
   sequelize: null,
   Sequelize
@@ -31,124 +39,136 @@ module.exports = db = {
 
 (async function initialize() {
   if (!DB.host || !DB.user || !DB.database) {
-    console.error('[DB] Missing DB configuration. Set DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME.');
-    // fail fast
+    console.error('[DB] Missing configuration. Please check DB_HOST, DB_USER, and DB_NAME.');
     process.exit(1);
   }
 
-  // Retry loop for initial connection (mysql2 createConnection)
+  // 🔁 Retry connection to MySQL
   let attempt = 0;
-  let createdConn = null;
+  let connection = null;
+
   while (attempt < MAX_RETRIES) {
     attempt++;
     try {
-      createdConn = await mysql.createConnection({ host: DB.host, port: DB.port, user: DB.user, password: DB.password });
+      connection = await mysql.createConnection({
+        host: DB.host,
+        port: DB.port,
+        user: DB.user,
+        password: DB.password
+      });
+      console.info(`[DB] Connected to MySQL (attempt ${attempt}).`);
       break;
     } catch (err) {
-      console.warn(`[DB] Connection attempt ${attempt}/${MAX_RETRIES} failed: ${err.code || err.message}`);
+      console.warn(`[DB] Connection attempt ${attempt}/${MAX_RETRIES} failed: ${err.message}`);
       if (attempt >= MAX_RETRIES) {
-        console.error('[DB] Max connection attempts reached - aborting startup.');
-        console.error(err);
+        console.error('[DB] Max connection attempts reached. Exiting.');
         process.exit(1);
       }
-      // wait then retry
       await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
     }
   }
 
-  // Optionally ensure DB exists (skip if SKIP_DB_CREATE)
+  // 🏗️ Ensure database exists
   try {
     if (!SKIP_DB_CREATE) {
-      await createdConn.query(`CREATE DATABASE IF NOT EXISTS \`${DB.database}\`;`);
+      await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB.database}\`;`);
       console.info(`[DB] Ensured database "${DB.database}" exists.`);
     } else {
-      console.info('[DB] SKIP_DB_CREATE is true — skipping CREATE DATABASE step.');
+      console.info('[DB] SKIP_DB_CREATE=true — skipping CREATE DATABASE step.');
     }
   } catch (err) {
-    console.error('[DB] Error ensuring database exists:', err);
-    await createdConn.end().catch(()=>{});
+    console.error('[DB] Failed ensuring database exists:', err.message);
     process.exit(1);
   } finally {
-    if (createdConn) await createdConn.end().catch(()=>{});
+    if (connection) await connection.end().catch(() => {});
   }
 
-  // Initialize Sequelize
+  // 🔧 Initialize Sequelize
   const sequelize = new Sequelize(DB.database, DB.user, DB.password, {
     host: DB.host,
     port: DB.port,
     dialect: 'mysql',
-    logging: (msg) => {
-      // adjust as needed
-      if (process.env.NODE_ENV === 'production') return; // silence SQL in prod
-      console.debug('[sequelize]', msg);
-    },
+    logging: process.env.NODE_ENV === 'production' ? false : (msg) => console.debug('[sequelize]', msg),
     define: { timestamps: false },
     pool: { max: 10, min: 0, acquire: 30000, idle: 10000 }
   });
 
   db.sequelize = sequelize;
 
-  // Import models (adjust paths if your tree differs)
+  // 🧩 Import models
   try {
     db.Account = require(path.resolve(__dirname, '..', 'accounts', 'account.model.js'))(sequelize);
     db.RefreshToken = require(path.resolve(__dirname, '..', 'accounts', 'refresh-token.model.js'))(sequelize);
     db.Employee = require(path.resolve(__dirname, '..', 'employees', 'employee.model.js'))(sequelize);
     db.Department = require(path.resolve(__dirname, '..', 'departments', 'department.model.js'))(sequelize);
-    // NOTE: folder is 'requests' lowercased. Update path if yours differs.
     db.Request = require(path.resolve(__dirname, '..', 'requests', 'request.model.js'))(sequelize);
     db.Workflow = require(path.resolve(__dirname, '..', 'workflows', 'workflow.model.js'))(sequelize);
+    db.Position = require(path.resolve(__dirname, '..', 'positions', 'position.model.js'))(sequelize); // ✅ Position model
   } catch (err) {
     console.error('[DB] Failed to load models:', err);
     process.exit(1);
   }
 
-  // call associate if present
-  Object.keys(db).forEach(k => {
-    const m = db[k];
-    if (m && typeof m.associate === 'function') {
-      try { m.associate(db); } catch (e) { console.warn(`[DB] associate() failed for ${k}: ${e.message}`); }
+  // 🔗 Associate models if needed
+  Object.keys(db).forEach(key => {
+    const model = db[key];
+    if (model?.associate) {
+      try {
+        model.associate(db);
+      } catch (e) {
+        console.warn(`[DB] associate() failed for ${key}: ${e.message}`);
+      }
     }
   });
 
-  // define explicit associations (safe guard)
+  // 🔐 Define relationships
   if (db.Account && db.RefreshToken) {
     db.Account.hasMany(db.RefreshToken, { foreignKey: 'accountId', onDelete: 'CASCADE' });
     db.RefreshToken.belongsTo(db.Account, { foreignKey: 'accountId' });
   }
+
   if (db.Account && db.Employee) {
     db.Account.hasOne(db.Employee, { foreignKey: 'accountId', onDelete: 'CASCADE' });
     db.Employee.belongsTo(db.Account, { foreignKey: 'accountId' });
   }
+
   if (db.Department && db.Employee) {
     db.Department.hasMany(db.Employee, { foreignKey: 'departmentId', sourceKey: 'id', onDelete: 'SET NULL' });
     db.Employee.belongsTo(db.Department, { foreignKey: 'departmentId', targetKey: 'id' });
   }
+
   if (db.Account && db.Request) {
     db.Account.hasMany(db.Request, { foreignKey: 'accountId', onDelete: 'CASCADE' });
     db.Request.belongsTo(db.Account, { foreignKey: 'accountId' });
   }
+
   if (db.Employee && db.Workflow) {
     db.Employee.hasMany(db.Workflow, { foreignKey: 'employeeId', sourceKey: 'EmployeeID', onDelete: 'CASCADE' });
     db.Workflow.belongsTo(db.Employee, { foreignKey: 'employeeId', targetKey: 'EmployeeID' });
   }
 
-  // Sync: controlled by DB_SYNC env var
+  if (db.Position && db.Employee) {
+    db.Position.hasMany(db.Employee, { foreignKey: 'positionId', sourceKey: 'id', onDelete: 'SET NULL' });
+    db.Employee.belongsTo(db.Position, { foreignKey: 'positionId', targetKey: 'id' });
+  }
+
+  // 🧭 Sync database schema
   try {
     if (DB_SYNC === 'none') {
       console.info('[DB] DB_SYNC=none — skipping sequelize.sync().');
     } else if (DB_SYNC === 'force') {
-      console.warn('[DB] DB_SYNC=force — will drop and recreate tables!');
+      console.warn('[DB] DB_SYNC=force — dropping and recreating all tables...');
       await sequelize.sync({ force: true });
-      console.info('[DB] sequelize.sync({ force: true }) completed.');
+      console.info('[DB] Tables recreated successfully.');
     } else {
-      console.info('[DB] Running sequelize.sync({ alter: true }) to update tables to match models.');
+      console.info('[DB] DB_SYNC=alter — syncing tables to match models...');
       await sequelize.sync({ alter: true });
-      console.info('[DB] sequelize.sync({ alter: true }) completed.');
+      console.info('[DB] Tables updated successfully.');
     }
   } catch (err) {
     console.error('[DB] sequelize.sync failed:', err);
     process.exit(1);
   }
 
-  console.info('[DB] Initialization finished.');
+  console.info('[DB] Initialization complete.');
 })();

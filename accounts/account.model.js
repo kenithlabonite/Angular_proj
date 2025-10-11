@@ -13,7 +13,7 @@ function model(sequelize) {
         email: {
             type: DataTypes.STRING(255),
             allowNull: false,
-            unique: true
+            unique: false
         },
         passwordHash: { type: DataTypes.STRING, allowNull: true },
         title: { type: DataTypes.STRING, allowNull: false },
