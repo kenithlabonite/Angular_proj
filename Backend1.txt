@@ -95,7 +95,7 @@ function model(sequelize) {
         email: {
             type: DataTypes.STRING(255),
             allowNull: false,
-            unique: true
+            unique: false
         },
         passwordHash: { type: DataTypes.STRING, allowNull: true },
         title: { type: DataTypes.STRING, allowNull: false },
@@ -766,29 +766,29 @@ function model(sequelize) {
 
 ================================================================================
 File: config.js
-Size: 698 B
+Size: 755 B
 ================================================================================
 
 
-module.exports = {
-  database: {
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 3306,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || 'bg5yi45i',
-    database: process.env.DB_NAME || 'node-mysql-signup-verification-api',
-  },
-  secret: process.env.JWT_SECRET || 'default-secret',
-  emailFrom: process.env.EMAIL_FROM || 'info@example.com',
-  smtpOptions: {
-    host: process.env.SMTP_HOST || 'smtp.ethereal.email',
-    port: process.env.SMTP_PORT || 587,
-    auth: {
-      user: process.env.SMTP_USER || 'shyanne.hills25@ethereal.email',
-      pass: process.env.SMTP_PASS || 'QkMGGHJaq2WcpKHME6',
-    },
-  },
-};
+// module.exports = {
+//   database: {
+//     host: process.env.DB_HOST || 'localhost',
+//     port: process.env.DB_PORT || 3306,
+//     user: process.env.DB_USER || 'root',
+//     password: process.env.DB_PASSWORD || 'bg5yi45i',
+//     database: process.env.DB_NAME || 'node-mysql-signup-verification-api',
+//   },
+//   secret: process.env.JWT_SECRET || 'default-secret',
+//   emailFrom: process.env.EMAIL_FROM || 'info@example.com',
+//   smtpOptions: {
+//     host: process.env.SMTP_HOST || 'smtp.ethereal.email',
+//     port: process.env.SMTP_PORT || 587,
+//     auth: {
+//       user: process.env.SMTP_USER || 'shyanne.hills25@ethereal.email',
+//       pass: process.env.SMTP_PASS || 'QkMGGHJaq2WcpKHME6',
+//     },
+//   },
+// };
 
 
 ================================================================================
@@ -1199,104 +1199,105 @@ async function transferDepartment(req, res, next) {
 
 ================================================================================
 File: employees\employee.model.js
-Size: 2.26 kB
+Size: 2.15 kB
 ================================================================================
 
 // employees/employee.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
-  const attributes = {
-    EmployeeID: {
-      type: DataTypes.INTEGER.UNSIGNED,   // 🔑 Changed from STRING(32)
-      allowNull: false,
-      autoIncrement: true,                // 🔑 Auto-increment PK
-      primaryKey: true,
-      field: 'EmployeeID'
-    },
+  const Employee = sequelize.define(
+    'Employee',
+    {
+      EmployeeID: {
+  type: DataTypes.STRING(20),
+  allowNull: false,
+  primaryKey: true,
+  field: 'EmployeeID',
+},
 
-    accountId: {
-      type: DataTypes.INTEGER.UNSIGNED,
-      allowNull: false,
-      field: 'accountId',
-      references: {
-        model: 'accounts',
-        key: 'id'
+
+      accountId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: false,
+        references: {
+          model: 'accounts',
+          key: 'id',
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'CASCADE',
       },
-      onUpdate: 'CASCADE',
-      onDelete: 'CASCADE'
-    },
 
-    position: {
-      type: DataTypes.STRING,
-      allowNull: true
-    },
-
-    departmentId: {
-      type: DataTypes.INTEGER.UNSIGNED,
-      allowNull: true,
-      field: 'DepartmentID',
-      references: {
-        model: 'departments',
-        key: 'id'
+      position: {
+        type: DataTypes.STRING(100),
+        allowNull: true,
       },
-      onUpdate: 'CASCADE',
-      onDelete: 'SET NULL'
-    },
 
-    hireDate: {
-      type: DataTypes.DATEONLY,
-      allowNull: true,
-      field: 'hireDate'
-    },
+      departmentId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+        references: {
+          model: 'departments',
+          key: 'id',
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL',
+      },
 
-    status: {
-      type: DataTypes.ENUM('active', 'inactive'),
-      allowNull: false,
-      defaultValue: 'active'
-    },
+      hireDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: true,
+      },
 
-    createdAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-      field: 'created'
+      status: {
+        type: DataTypes.ENUM('active', 'inactive'),
+        allowNull: false,
+        defaultValue: 'active',
+      },
+
+      createdAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        field: 'created',
+      },
+
+      updatedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        field: 'updated',
+      },
     },
-    updatedAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-      field: 'updated'
+    {
+      tableName: 'employees',
+      timestamps: true,
+      createdAt: 'created',
+      updatedAt: 'updated',
     }
-  };
+  );
 
-  const options = {
-    tableName: 'employees',
-    timestamps: true,
-    createdAt: 'created',
-    updatedAt: 'updated'
-  };
-
-  const Employee = sequelize.define('Employee', attributes, options);
-
+  // 🔗 Associations
   Employee.associate = (models) => {
     if (models.Account) {
       Employee.belongsTo(models.Account, {
         foreignKey: 'accountId',
         targetKey: 'id',
-        as: 'Account'
+        as: 'Account',
       });
     }
+
     if (models.Department) {
       Employee.belongsTo(models.Department, {
         foreignKey: 'departmentId',
         targetKey: 'id',
-        as: 'Department'
+        as: 'Department',
       });
     }
+
     if (models.Workflow) {
       Employee.hasMany(models.Workflow, {
         foreignKey: 'employeeId',
         sourceKey: 'EmployeeID',
-        as: 'Workflows'
+        as: 'Workflows',
       });
     }
   };
@@ -1552,6 +1553,160 @@ Size: 997 B
 
 
 ================================================================================
+File: positions\position.controller.js
+Size: 1.48 kB
+================================================================================
+
+// positions/position.controller.js
+const express = require('express');
+const router = express.Router();
+const positionService = require('./position.service'); // ✅ fixed path
+
+// Routes
+router.get('/', getAll);
+router.get('/:id', getById);
+router.post('/', create);
+router.put('/:id', update);
+router.delete('/:id', remove);
+
+module.exports = router;
+
+// Controller functions
+async function getAll(req, res, next) {
+  try {
+    const positions = await positionService.getAll();
+    res.json(positions);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getById(req, res, next) {
+  try {
+    const position = await positionService.getById(req.params.id);
+    res.json(position);
+  } catch (err) {
+    res.status(404).json({ message: err.message });
+  }
+}
+
+async function create(req, res, next) {
+  try {
+    const position = await positionService.create(req.body);
+    res.status(201).json(position);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+}
+
+async function update(req, res, next) {
+  try {
+    const position = await positionService.update(req.params.id, req.body);
+    res.json(position);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+}
+
+async function remove(req, res, next) {
+  try {
+    const result = await positionService.remove(req.params.id);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+}
+
+
+================================================================================
+File: positions\position.model.js
+Size: 407 B
+================================================================================
+
+// positions/position.model.js
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+  const Position = sequelize.define('Position', {
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true
+    },
+    position: {
+      type: DataTypes.STRING(100),
+      allowTopic: false,
+      unique: true
+    }
+  });
+
+  return Position;
+};
+
+
+================================================================================
+File: positions\position.service.js
+Size: 1.52 kB
+================================================================================
+
+// positions/position.service.js
+const db = require('../_helpers/db');
+
+module.exports = {
+  getAll,
+  getById,
+  create,
+  update,
+  remove
+};
+
+// ✅ Get all positions
+async function getAll() {
+  return await db.Position.findAll();
+}
+
+// ✅ Get a position by ID
+async function getById(id) {
+  const position = await db.Position.findByPk(id);
+  if (!position) throw new Error('Position not found');
+  return position;
+}
+
+// ✅ Create a new position
+async function create(params) {
+  if (!params.position) throw new Error('Position name is required');
+
+  const existing = await db.Position.findOne({ where: { position: params.position } });
+  if (existing) throw new Error(`Position "${params.position}" already exists`);
+
+  const newPosition = await db.Position.create(params);
+  return newPosition;
+}
+
+// ✅ Update a position by ID
+async function update(id, params) {
+  const position = await getById(id);
+
+  // Check for duplicate if updating name
+  if (params.position && params.position !== position.position) {
+    const duplicate = await db.Position.findOne({ where: { position: params.position } });
+    if (duplicate) throw new Error(`Position "${params.position}" already exists`);
+  }
+
+  Object.assign(position, params);
+  await position.save();
+  return position;
+}
+
+// ✅ Delete a position by ID
+async function remove(id) {
+  const position = await getById(id);
+  await position.destroy();
+  return { message: 'Position deleted successfully' };
+}
+
+
+================================================================================
 File: README.md
 Size: 15 B
 ================================================================================
@@ -1676,71 +1831,93 @@ async function _delete(req, res, next) {
 
 ================================================================================
 File: requests\request.model.js
-Size: 1.54 kB
+Size: 2.21 kB
 ================================================================================
 
 // requests/request.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
-  const attributes = {
-    requestId: {
-      type: DataTypes.INTEGER.UNSIGNED,
-      autoIncrement: true,
-      primaryKey: true
-    },
-    accountId: {
-      type: DataTypes.INTEGER.UNSIGNED,
-      allowNull: false,
-      references: {
-        model: 'accounts',
-        key: 'id'
+  const Request = sequelize.define(
+    'Request',
+    {
+      id: { // ✅ Use standard naming for Sequelize
+        type: DataTypes.INTEGER.UNSIGNED,
+        autoIncrement: true,
+        primaryKey: true,
       },
-      onUpdate: 'CASCADE',
-      onDelete: 'CASCADE'
+
+      accountId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: false,
+        references: {
+          model: 'accounts', // ✅ FK to accounts table
+          key: 'id',
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'CASCADE',
+      },
+
+      type: {
+        type: DataTypes.ENUM('equipment', 'leave', 'resources'),
+        allowNull: false,
+      },
+
+      items: {
+        type: DataTypes.STRING(255), // ✅ clear name and reasonable length
+        allowNull: false,
+      },
+
+      quantity: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: false,
+        defaultValue: 1,
+      },
+
+      status: {
+        type: DataTypes.ENUM('pending', 'approved', 'disapproved', 'rejected'),
+        allowNull: false,
+        defaultValue: 'pending',
+      },
+
+      createdAt: { // ✅ consistent with Sequelize timestamp standards
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: DataTypes.NOW,
+        field: 'created',
+      },
+
+      updatedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        field: 'updated',
+      },
     },
-    type: {
-      type: DataTypes.ENUM('equipment', 'leave', 'resources'),
-      allowNull: false
-    },
-    items: {
-      type: DataTypes.STRING(255), // item name
-      allowNull: false
-    },
-    quantity: {
-      type: DataTypes.INTEGER.UNSIGNED,
-      allowNull: false,
-      defaultValue: 1
-    },
-    status: {
-      type: DataTypes.ENUM('pending', 'approved', 'disapproved', 'rejected'),
-      allowNull: false,
-      defaultValue: 'pending'
-    },
-    created: {
-      type: DataTypes.DATE,
-      allowNull: false,
-      defaultValue: DataTypes.NOW
-    },
-    updated: {
-      type: DataTypes.DATE,
-      allowNull: true
+    {
+      tableName: 'requests',
+      timestamps: true, // ✅ enables createdAt and updatedAt automatically
+      createdAt: 'created',
+      updatedAt: 'updated',
     }
-  };
+  );
 
-  const options = {
-    tableName: 'requests',
-    timestamps: false
-  };
-
-  const Request = sequelize.define('Request', attributes, options);
-
+  // 🔗 Associations
   Request.associate = (models) => {
     if (models.Account) {
       Request.belongsTo(models.Account, {
         foreignKey: 'accountId',
         targetKey: 'id',
-        as: 'Account'
+        as: 'Account',
+      });
+    }
+
+    // ✅ One-to-one with Workflow (if applicable)
+    if (models.Workflow) {
+      Request.hasOne(models.Workflow, {
+        foreignKey: 'requestId',
+        as: 'Workflow',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
       });
     }
   };
@@ -1902,7 +2079,7 @@ async function _delete(requestId) {
 
 ================================================================================
 File: server.js
-Size: 1.52 kB
+Size: 1.64 kB
 ================================================================================
 
 // server.js
@@ -1914,38 +2091,42 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const errorHandler = require('_middleware/error-handler');
 
-// middleware
+// ✅ Middleware
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(cookieParser());
 
-// allow cors requests from any origin and with credentials
-app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
+// ✅ Allow CORS requests from any origin with credentials
+app.use(cors({
+  origin: (origin, callback) => callback(null, true),
+  credentials: true
+}));
 
-// api routes
+// ✅ Import route controllers
 const accountRoutes = require('./accounts/accounts.controller');
 const employeeRoutes = require('./employees/employee.controller');
-const departmentRoutes = require('./departments');
+const departmentRoutes = require('./departments'); // folder with index.js exporting router
+const requestRoutes = require('./requests');       // folder with index.js exporting router
+const workflowRoutes = require('./workflows/workflow.controller');
+const positionRoutes = require('./positions/position.controller'); // ✅ fixed path
 
-// IMPORTANT: require the requests **router** (./requests) — not the controller file
-// This will load requests/index.js which should export an Express router.
-const requestRoutes = require('./requests'); // <- corrected
-
-// mount routes
+// ✅ Mount routes
 app.use('/accounts', accountRoutes);
 app.use('/employees', employeeRoutes);
 app.use('/departments', departmentRoutes);
 app.use('/requests', requestRoutes);
-app.use('/workflows', require('./workflows/workflow.controller'));
+app.use('/workflows', workflowRoutes);
+app.use('/positions', positionRoutes); // ✅ now /positions not /api/positions
 
-// app.use('/refreshtokens', refreshTokenRoutes);
-
-// global error handler
+// 🧩 Global error handler
 app.use(errorHandler);
 
-// start server
-const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 80) : 4000;
-app.listen(port, () => console.log('Server listening on port ' + port));
+// ✅ Start server
+const port = process.env.NODE_ENV === 'production'
+  ? (process.env.PORT || 80)
+  : 4000;
+
+app.listen(port, () => console.log(`✅ Server listening on port ${port}`));
 
 
 ================================================================================
@@ -2723,61 +2904,99 @@ module.exports = router;
 
 ================================================================================
 File: workflows\workflow.model.js
-Size: 1.25 kB
+Size: 2 kB
 ================================================================================
 
-// src/models/workflow.model.js
+// models/workflow.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
-  const Workflow = sequelize.define('Workflow', {
-    id: {
-      type: DataTypes.INTEGER,
-      autoIncrement: true,
-      primaryKey: true
+  const Workflow = sequelize.define(
+    'Workflow',
+    {
+      id: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        autoIncrement: true,
+        primaryKey: true,
+      },
+
+      employeeId: {
+  type: DataTypes.STRING(20),
+  allowNull: false,
+  references: {
+    model: 'employees',
+    key: 'EmployeeID'
+  },
+  onUpdate: 'CASCADE',
+  onDelete: 'CASCADE'
+},
+
+      requestId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+        references: {
+          model: 'requests',
+          key: 'id',
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'CASCADE',
+      },
+
+      type: {
+        type: DataTypes.STRING(50),
+        allowNull: false,
+      },
+
+      details: {
+        type: DataTypes.JSON,
+        allowNull: false,
+      },
+
+      status: {
+        type: DataTypes.ENUM('pending', 'approved', 'rejected', 'completed'),
+        allowNull: false,
+        defaultValue: 'pending',
+      },
+
+      createdAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: DataTypes.NOW,
+        field: 'created',
+      },
+
+      updatedAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: DataTypes.NOW,
+        field: 'updated',
+      },
     },
+    {
+      tableName: 'workflows',
+      timestamps: true,
+      createdAt: 'created',
+      updatedAt: 'updated',
+    }
+  );
 
-    // CHILD FK: employeeId
-    employeeId: {
-      type: DataTypes.STRING(50),
-      allowNull: false,
-      field: 'employeeId'
-    },
-
-
-    type: {
-      type: DataTypes.STRING(50),
-      allowNull: false,
-      field: 'type'
-    },
-
-    details: {
-      type: DataTypes.JSON,
-      allowNull: false,
-      field: 'details'
-    },
-
-    status: {
-      type: DataTypes.ENUM('pending', 'approved', 'rejected', 'completed'),
-      allowNull: false,
-      defaultValue: 'pending',
-      field: 'status'
-    },
-
-  }, {
-    tableName: 'Workflows',
-    timestamps: true,
-    underscored: false
-  });
-
+  // 🔗 Associations
   Workflow.associate = (models) => {
-    Workflow.belongsTo(models.Employee, {
-      foreignKey: 'employeeId',   // column on Workflows table
-      targetKey: 'EmployeeID',    // column on Employees table (must match exactly)
-      as: 'employee',
-      onDelete: 'CASCADE',
-      onUpdate: 'CASCADE'
-    });
+    if (models.Employee) {
+      Workflow.belongsTo(models.Employee, {
+        foreignKey: 'employeeId',
+        targetKey: 'EmployeeID',
+        as: 'Employee',
+      });
+    }
+
+    if (models.Request) {
+      Workflow.belongsTo(models.Request, {
+        foreignKey: 'requestId',
+        targetKey: 'id',
+        as: 'Request',
+      });
+    }
   };
 
   return Workflow;
@@ -2901,7 +3120,7 @@ async function reject(id) {
 
 ================================================================================
 File: _helpers\db.js
-Size: 6.36 kB
+Size: 6.65 kB
 ================================================================================
 
 // src/_helpers/db.js
@@ -2912,11 +3131,17 @@ const { Sequelize } = require('sequelize');
 
 const configPath = path.resolve(__dirname, '..', 'config.json');
 let fileConfig = {};
+
+// ✅ Load config.json if available
 if (fs.existsSync(configPath)) {
-  try { fileConfig = require(configPath); } catch (e) { /* ignore */ }
+  try {
+    fileConfig = require(configPath);
+  } catch (e) {
+    console.warn('[DB] Failed to parse config.json:', e.message);
+  }
 }
 
-// prefer environment variables in deployment
+// ✅ Database configuration (priority: environment → config.json → default)
 const DB = {
   host: process.env.DB_HOST || fileConfig.database?.host || 'localhost',
   port: Number(process.env.DB_PORT || fileConfig.database?.port || 3306),
@@ -2925,11 +3150,13 @@ const DB = {
   database: process.env.DB_NAME || fileConfig.database?.database || 'node-mysql-signup-verification-api'
 };
 
-const DB_SYNC = process.env.DB_SYNC || (fileConfig.dbSync || 'alter'); // 'alter' | 'force' | 'none'
+// ✅ Sync and connection settings
+const DB_SYNC = process.env.DB_SYNC || fileConfig.dbSync || 'alter'; // 'alter' | 'force' | 'none'
 const SKIP_DB_CREATE = (process.env.SKIP_DB_CREATE || 'false').toLowerCase() === 'true';
 const MAX_RETRIES = Number(process.env.DB_CONN_RETRIES || 5);
 const RETRY_DELAY_MS = Number(process.env.DB_CONN_RETRY_DELAY_MS || 3000);
 
+// ✅ Exportable db object
 module.exports = db = {
   sequelize: null,
   Sequelize
@@ -2937,126 +3164,138 @@ module.exports = db = {
 
 (async function initialize() {
   if (!DB.host || !DB.user || !DB.database) {
-    console.error('[DB] Missing DB configuration. Set DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME.');
-    // fail fast
+    console.error('[DB] Missing configuration. Please check DB_HOST, DB_USER, and DB_NAME.');
     process.exit(1);
   }
 
-  // Retry loop for initial connection (mysql2 createConnection)
+  // 🔁 Retry connection to MySQL
   let attempt = 0;
-  let createdConn = null;
+  let connection = null;
+
   while (attempt < MAX_RETRIES) {
     attempt++;
     try {
-      createdConn = await mysql.createConnection({ host: DB.host, port: DB.port, user: DB.user, password: DB.password });
+      connection = await mysql.createConnection({
+        host: DB.host,
+        port: DB.port,
+        user: DB.user,
+        password: DB.password
+      });
+      console.info(`[DB] Connected to MySQL (attempt ${attempt}).`);
       break;
     } catch (err) {
-      console.warn(`[DB] Connection attempt ${attempt}/${MAX_RETRIES} failed: ${err.code || err.message}`);
+      console.warn(`[DB] Connection attempt ${attempt}/${MAX_RETRIES} failed: ${err.message}`);
       if (attempt >= MAX_RETRIES) {
-        console.error('[DB] Max connection attempts reached - aborting startup.');
-        console.error(err);
+        console.error('[DB] Max connection attempts reached. Exiting.');
         process.exit(1);
       }
-      // wait then retry
       await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
     }
   }
 
-  // Optionally ensure DB exists (skip if SKIP_DB_CREATE)
+  // 🏗️ Ensure database exists
   try {
     if (!SKIP_DB_CREATE) {
-      await createdConn.query(`CREATE DATABASE IF NOT EXISTS \`${DB.database}\`;`);
+      await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB.database}\`;`);
       console.info(`[DB] Ensured database "${DB.database}" exists.`);
     } else {
-      console.info('[DB] SKIP_DB_CREATE is true — skipping CREATE DATABASE step.');
+      console.info('[DB] SKIP_DB_CREATE=true — skipping CREATE DATABASE step.');
     }
   } catch (err) {
-    console.error('[DB] Error ensuring database exists:', err);
-    await createdConn.end().catch(()=>{});
+    console.error('[DB] Failed ensuring database exists:', err.message);
     process.exit(1);
   } finally {
-    if (createdConn) await createdConn.end().catch(()=>{});
+    if (connection) await connection.end().catch(() => {});
   }
 
-  // Initialize Sequelize
+  // 🔧 Initialize Sequelize
   const sequelize = new Sequelize(DB.database, DB.user, DB.password, {
     host: DB.host,
     port: DB.port,
     dialect: 'mysql',
-    logging: (msg) => {
-      // adjust as needed
-      if (process.env.NODE_ENV === 'production') return; // silence SQL in prod
-      console.debug('[sequelize]', msg);
-    },
+    logging: process.env.NODE_ENV === 'production' ? false : (msg) => console.debug('[sequelize]', msg),
     define: { timestamps: false },
     pool: { max: 10, min: 0, acquire: 30000, idle: 10000 }
   });
 
   db.sequelize = sequelize;
 
-  // Import models (adjust paths if your tree differs)
+  // 🧩 Import models
   try {
     db.Account = require(path.resolve(__dirname, '..', 'accounts', 'account.model.js'))(sequelize);
     db.RefreshToken = require(path.resolve(__dirname, '..', 'accounts', 'refresh-token.model.js'))(sequelize);
     db.Employee = require(path.resolve(__dirname, '..', 'employees', 'employee.model.js'))(sequelize);
     db.Department = require(path.resolve(__dirname, '..', 'departments', 'department.model.js'))(sequelize);
-    // NOTE: folder is 'requests' lowercased. Update path if yours differs.
     db.Request = require(path.resolve(__dirname, '..', 'requests', 'request.model.js'))(sequelize);
     db.Workflow = require(path.resolve(__dirname, '..', 'workflows', 'workflow.model.js'))(sequelize);
+    db.Position = require(path.resolve(__dirname, '..', 'positions', 'position.model.js'))(sequelize); // ✅ Position model
   } catch (err) {
     console.error('[DB] Failed to load models:', err);
     process.exit(1);
   }
 
-  // call associate if present
-  Object.keys(db).forEach(k => {
-    const m = db[k];
-    if (m && typeof m.associate === 'function') {
-      try { m.associate(db); } catch (e) { console.warn(`[DB] associate() failed for ${k}: ${e.message}`); }
+  // 🔗 Associate models if needed
+  Object.keys(db).forEach(key => {
+    const model = db[key];
+    if (model?.associate) {
+      try {
+        model.associate(db);
+      } catch (e) {
+        console.warn(`[DB] associate() failed for ${key}: ${e.message}`);
+      }
     }
   });
 
-  // define explicit associations (safe guard)
+  // 🔐 Define relationships
   if (db.Account && db.RefreshToken) {
     db.Account.hasMany(db.RefreshToken, { foreignKey: 'accountId', onDelete: 'CASCADE' });
     db.RefreshToken.belongsTo(db.Account, { foreignKey: 'accountId' });
   }
+
   if (db.Account && db.Employee) {
     db.Account.hasOne(db.Employee, { foreignKey: 'accountId', onDelete: 'CASCADE' });
     db.Employee.belongsTo(db.Account, { foreignKey: 'accountId' });
   }
+
   if (db.Department && db.Employee) {
     db.Department.hasMany(db.Employee, { foreignKey: 'departmentId', sourceKey: 'id', onDelete: 'SET NULL' });
     db.Employee.belongsTo(db.Department, { foreignKey: 'departmentId', targetKey: 'id' });
   }
+
   if (db.Account && db.Request) {
     db.Account.hasMany(db.Request, { foreignKey: 'accountId', onDelete: 'CASCADE' });
     db.Request.belongsTo(db.Account, { foreignKey: 'accountId' });
   }
+
   if (db.Employee && db.Workflow) {
     db.Employee.hasMany(db.Workflow, { foreignKey: 'employeeId', sourceKey: 'EmployeeID', onDelete: 'CASCADE' });
     db.Workflow.belongsTo(db.Employee, { foreignKey: 'employeeId', targetKey: 'EmployeeID' });
   }
 
-  // Sync: controlled by DB_SYNC env var
+  if (db.Position && db.Employee) {
+    db.Position.hasMany(db.Employee, { foreignKey: 'positionId', sourceKey: 'id', onDelete: 'SET NULL' });
+    db.Employee.belongsTo(db.Position, { foreignKey: 'positionId', targetKey: 'id' });
+  }
+
+  // 🧭 Sync database schema
   try {
     if (DB_SYNC === 'none') {
       console.info('[DB] DB_SYNC=none — skipping sequelize.sync().');
     } else if (DB_SYNC === 'force') {
-      console.warn('[DB] DB_SYNC=force — will drop and recreate tables!');
+      console.warn('[DB] DB_SYNC=force — dropping and recreating all tables...');
       await sequelize.sync({ force: true });
-      console.info('[DB] sequelize.sync({ force: true }) completed.');
+      console.info('[DB] Tables recreated successfully.');
     } else {
-      console.info('[DB] Running sequelize.sync({ alter: true }) to update tables to match models.');
+      console.info('[DB] DB_SYNC=alter — syncing tables to match models...');
       await sequelize.sync({ alter: true });
-      console.info('[DB] sequelize.sync({ alter: true }) completed.');
+      console.info('[DB] Tables updated successfully. ');
     }
   } catch (err) {
     console.error('[DB] sequelize.sync failed:', err);
     process.exit(1);
   }
 
-  console.info('[DB] Initialization finished.');
+  console.info('[DB] Initialization complete. ✅✅✅');
 })();
 
 

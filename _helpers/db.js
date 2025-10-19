@@ -26,7 +26,7 @@ const DB = {
 };
 
 // ✅ Sync and connection settings
-const DB_SYNC = process.env.DB_SYNC || fileConfig.dbSync || 'alter'; // 'alter' | 'force' | 'none'
+const DB_SYNC = process.env.DB_SYNC || fileConfig.dbSync || 'forsce'; // 'alter' | 'force' | 'none'
 const SKIP_DB_CREATE = (process.env.SKIP_DB_CREATE || 'false').toLowerCase() === 'true';
 const MAX_RETRIES = Number(process.env.DB_CONN_RETRIES || 5);
 const RETRY_DELAY_MS = Number(process.env.DB_CONN_RETRY_DELAY_MS || 3000);
@@ -163,12 +163,12 @@ module.exports = db = {
     } else {
       console.info('[DB] DB_SYNC=alter — syncing tables to match models...');
       await sequelize.sync({ alter: true });
-      console.info('[DB] Tables updated successfully.');
+      console.info('[DB] Tables updated successfully. ');
     }
   } catch (err) {
     console.error('[DB] sequelize.sync failed:', err);
     process.exit(1);
   }
 
-  console.info('[DB] Initialization complete.');
+  console.info('[DB] Initialization complete. ✅✅✅');
 })();
