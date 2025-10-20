@@ -1,9 +1,9 @@
 // positions/position.model.js
-const { DataTypes } = require('sequelize');
+const { DataTypes } = require("sequelize");
 
 module.exports = (sequelize) => {
   const Position = sequelize.define(
-    'Position',
+    "Position",
     {
       id: {
         type: DataTypes.INTEGER.UNSIGNED,
@@ -16,26 +16,48 @@ module.exports = (sequelize) => {
         unique: true,
       },
       status: {
-        type: DataTypes.ENUM('active', 'deactive'),
+        type: DataTypes.ENUM("active", "deactive"),
         allowNull: false,
-        defaultValue: 'active',
+        defaultValue: "active",
+      },
+      createdAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        field: "created",
+      },
+      updatedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        field: "updated",
       },
     },
     {
-      tableName: 'positions',
-      timestamps: false, // ✅ disable timestamps unless you plan to track created/updated
+      tableName: "positions",
+      timestamps: true,
+      createdAt: "created",
+      updatedAt: "updated",
     }
   );
 
-  // Optional association placeholder (if you connect to employees later)
-  Position.associate = (models) => {
-    if (models.Employee) {
-      Position.hasMany(models.Employee, {
-        foreignKey: 'positionId',
-        as: 'employees',
-        onDelete: 'SET NULL',
-      });
+  /**
+   * ✅ Update the status of a position
+   * @param {number} id - The ID of the position
+   * @param {'active' | 'deactive'} newStatus - The new status value
+   * @returns {Promise<Object|null>} - The updated position or null if not found
+   */
+  Position.editStatus = async function (id, newStatus) {
+    if (!["active", "deactive"].includes(newStatus)) {
+      throw new Error("Invalid status value. Must be 'active' or 'deactive'.");
     }
+
+    const position = await Position.findByPk(id);
+    if (!position) {
+      throw new Error("Position not found.");
+    }
+
+    position.status = newStatus;
+    await position.save();
+    return position;
   };
 
   return Position;
