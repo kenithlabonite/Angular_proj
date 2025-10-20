@@ -1,33 +1,37 @@
 // src/_helpers/db.js
-const fs = require('fs');
-const path = require('path');
-const mysql = require('mysql2/promise');
-const { Sequelize } = require('sequelize');
+const fs = require("fs");
+const path = require("path");
+const mysql = require("mysql2/promise");
+const { Sequelize } = require("sequelize");
 
-const configPath = path.resolve(__dirname, '..', 'config.json');
+const configPath = path.resolve(__dirname, "..", "config.json");
 let fileConfig = {};
 
-// ✅ Load config.json if available
+// ✅ Load config.json safely
 if (fs.existsSync(configPath)) {
   try {
     fileConfig = require(configPath);
   } catch (e) {
-    console.warn('[DB] Failed to parse config.json:', e.message);
+    console.warn("[DB] Failed to parse config.json:", e.message);
   }
 }
 
-// ✅ Database configuration (priority: environment → config.json → default)
+// ✅ Database configuration (priority: env → config.json → default)
 const DB = {
-  host: process.env.DB_HOST || fileConfig.database?.host || 'localhost',
+  host: process.env.DB_HOST || fileConfig.database?.host || "localhost",
   port: Number(process.env.DB_PORT || fileConfig.database?.port || 3306),
-  user: process.env.DB_USER || fileConfig.database?.user || 'root',
-  password: process.env.DB_PASSWORD || fileConfig.database?.password || '',
-  database: process.env.DB_NAME || fileConfig.database?.database || 'node-mysql-signup-verification-api',
+  user: process.env.DB_USER || fileConfig.database?.user || "root",
+  password: process.env.DB_PASSWORD || fileConfig.database?.password || "",
+  database:
+    process.env.DB_NAME ||
+    fileConfig.database?.database ||
+    "node-mysql-signup-verification-api",
 };
 
 // ✅ Sync and connection settings
-const DB_SYNC = (process.env.DB_SYNC || fileConfig.dbSync || 'none').toLowerCase(); // 'alter' | 'force' | 'none'
-const SKIP_DB_CREATE = (process.env.SKIP_DB_CREATE || 'false').toLowerCase() === 'true';
+const DB_SYNC = (process.env.DB_SYNC || fileConfig.dbSync || "alter").toLowerCase(); // 'alter' | 'force' | 'none'
+const SKIP_DB_CREATE =
+  (process.env.SKIP_DB_CREATE || "false").toLowerCase() === "true";
 const MAX_RETRIES = Number(process.env.DB_CONN_RETRIES || 5);
 const RETRY_DELAY_MS = Number(process.env.DB_CONN_RETRY_DELAY_MS || 3000);
 
@@ -37,7 +41,9 @@ module.exports = db;
 
 (async function initialize() {
   if (!DB.host || !DB.user || !DB.database) {
-    console.error('[DB] Missing configuration. Please check DB_HOST, DB_USER, and DB_NAME.');
+    console.error(
+      "[DB] Missing configuration. Please check DB_HOST, DB_USER, and DB_NAME."
+    );
     process.exit(1);
   }
 
@@ -56,9 +62,11 @@ module.exports = db;
       console.info(`[DB] Connected to MySQL (attempt ${attempt}).`);
       break;
     } catch (err) {
-      console.warn(`[DB] Connection attempt ${attempt}/${MAX_RETRIES} failed: ${err.message}`);
+      console.warn(
+        `[DB] Connection attempt ${attempt}/${MAX_RETRIES} failed: ${err.message}`
+      );
       if (attempt >= MAX_RETRIES) {
-        console.error('[DB] Max connection attempts reached. Exiting.');
+        console.error("[DB] Max connection attempts reached. Exiting.");
         process.exit(1);
       }
       await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
@@ -71,10 +79,10 @@ module.exports = db;
       await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB.database}\`;`);
       console.info(`[DB] Ensured database "${DB.database}" exists.`);
     } else {
-      console.info('[DB] SKIP_DB_CREATE=true — skipping CREATE DATABASE step.');
+      console.info("[DB] SKIP_DB_CREATE=true — skipping CREATE DATABASE step.");
     }
   } catch (err) {
-    console.error('[DB] Failed ensuring database exists:', err.message);
+    console.error("[DB] Failed ensuring database exists:", err.message);
     process.exit(1);
   } finally {
     if (connection) await connection.end().catch(() => {});
@@ -84,8 +92,11 @@ module.exports = db;
   const sequelize = new Sequelize(DB.database, DB.user, DB.password, {
     host: DB.host,
     port: DB.port,
-    dialect: 'mysql',
-    logging: process.env.NODE_ENV === 'production' ? false : (msg) => console.debug('[sequelize]', msg),
+    dialect: "mysql",
+    logging:
+      process.env.NODE_ENV === "production"
+        ? false
+        : (msg) => console.debug("[sequelize]", msg),
     define: { timestamps: false },
     pool: { max: 10, min: 0, acquire: 30000, idle: 10000 },
   });
@@ -94,19 +105,20 @@ module.exports = db;
 
   // 🧩 Import models
   try {
-    db.Account = require(path.resolve(__dirname, '..', 'accounts', 'account.model.js'))(sequelize);
-    db.RefreshToken = require(path.resolve(__dirname, '..', 'accounts', 'refresh-token.model.js'))(sequelize);
-    db.Employee = require(path.resolve(__dirname, '..', 'employees', 'employee.model.js'))(sequelize);
-    db.Department = require(path.resolve(__dirname, '..', 'departments', 'department.model.js'))(sequelize);
-    db.Request = require(path.resolve(__dirname, '..', 'requests', 'request.model.js'))(sequelize);
-    db.Workflow = require(path.resolve(__dirname, '..', 'workflows', 'workflow.model.js'))(sequelize);
-    db.Position = require(path.resolve(__dirname, '..', 'positions', 'position.model.js'))(sequelize);
-  } catch (err) {
-    console.error('[DB] Failed to load models:', err);
-    process.exit(1);
-  }
+  db.Account = require("../accounts/account.model")(sequelize);
+  db.RefreshToken = require("../accounts/refresh-token.model")(sequelize);
+  db.Employee = require("../employees/employee.model")(sequelize);
+  db.Department = require("../departments/department.model")(sequelize);
+  db.Position = require("../positions/position.model")(sequelize); // ✅ includes status field
+  db.Request = require("../requests/request.model")(sequelize); // ✅ fixed (two dots only)
+  db.Workflow = require("../workflows/workflow.model")(sequelize);
+} catch (err) {
+  console.error("[DB] Failed to load models:", err);
+  process.exit(1);
+}
 
-  // 🔗 Setup associations
+
+  // 🔗 Setup associations (if defined in models)
   Object.keys(db).forEach((key) => {
     const model = db[key];
     if (model?.associate) {
@@ -120,56 +132,59 @@ module.exports = db;
 
   // 🔐 Manual relationships
   if (db.Account && db.RefreshToken) {
-    db.Account.hasMany(db.RefreshToken, { foreignKey: 'accountId', onDelete: 'CASCADE' });
-    db.RefreshToken.belongsTo(db.Account, { foreignKey: 'accountId' });
+    db.Account.hasMany(db.RefreshToken, { foreignKey: "accountId", onDelete: "CASCADE" });
+    db.RefreshToken.belongsTo(db.Account, { foreignKey: "accountId" });
   }
 
   if (db.Account && db.Employee) {
-    db.Account.hasOne(db.Employee, { foreignKey: 'accountId', onDelete: 'CASCADE' });
-    db.Employee.belongsTo(db.Account, { foreignKey: 'accountId' });
+    db.Account.hasOne(db.Employee, { foreignKey: "accountId", onDelete: "CASCADE" });
+    db.Employee.belongsTo(db.Account, { foreignKey: "accountId" });
   }
 
   if (db.Department && db.Employee) {
-    db.Department.hasMany(db.Employee, { foreignKey: 'departmentId', onDelete: 'SET NULL' });
-    db.Employee.belongsTo(db.Department, { foreignKey: 'departmentId' });
+    db.Department.hasMany(db.Employee, { foreignKey: "departmentId", onDelete: "SET NULL" });
+    db.Employee.belongsTo(db.Department, { foreignKey: "departmentId" });
   }
 
   if (db.Account && db.Request) {
-    db.Account.hasMany(db.Request, { foreignKey: 'accountId', onDelete: 'CASCADE' });
-    db.Request.belongsTo(db.Account, { foreignKey: 'accountId' });
+    db.Account.hasMany(db.Request, { foreignKey: "accountId", onDelete: "CASCADE" });
+    db.Request.belongsTo(db.Account, { foreignKey: "accountId" });
   }
 
   if (db.Employee && db.Workflow) {
-    db.Employee.hasMany(db.Workflow, { foreignKey: 'employeeId', sourceKey: 'EmployeeID', onDelete: 'CASCADE' });
-    db.Workflow.belongsTo(db.Employee, { foreignKey: 'employeeId', targetKey: 'EmployeeID' });
+    db.Employee.hasMany(db.Workflow, { foreignKey: "employeeId", sourceKey: "EmployeeID", onDelete: "CASCADE" });
+    db.Workflow.belongsTo(db.Employee, { foreignKey: "employeeId", targetKey: "EmployeeID" });
   }
 
   if (db.Position && db.Employee) {
-    db.Position.hasMany(db.Employee, { foreignKey: 'positionId', onDelete: 'SET NULL' });
-    db.Employee.belongsTo(db.Position, { foreignKey: 'positionId' });
+    db.Position.hasMany(db.Employee, { foreignKey: "positionId", onDelete: "SET NULL" });
+    db.Employee.belongsTo(db.Position, { foreignKey: "positionId" });
   }
 
   // 🧭 Sync schema safely
   try {
-    if (DB_SYNC === 'none') {
-      console.info('[DB] DB_SYNC=none — skipping sequelize.sync() (safe mode).');
-      await sequelize.sync({ alter: false });
-    } else if (DB_SYNC === 'force') {
-      console.warn('[DB] DB_SYNC=force — dropping and recreating ALL tables...');
-      await sequelize.sync({ force: true });
-      console.info('[DB] Tables recreated successfully.');
-    } else if (DB_SYNC === 'alter') {
-      console.info('[DB] DB_SYNC=alter — syncing tables to match models...');
-      await sequelize.sync({ alter: true });
-      console.info('[DB] Tables updated successfully.');
-    } else {
-      console.info(`[DB] Unknown DB_SYNC mode "${DB_SYNC}". Defaulting to safe mode.`);
-      await sequelize.sync({ alter: false });
+    switch (DB_SYNC) {
+      case "force":
+        console.warn("[DB] DB_SYNC=force — Dropping and recreating all tables...");
+        await sequelize.sync({ force: true });
+        console.info("[DB] Tables recreated successfully.");
+        break;
+      case "alter":
+        console.info("[DB] DB_SYNC=alter — Syncing models with database...");
+        await sequelize.sync({ alter: true });
+        console.info("[DB] Tables updated successfully.");
+        break;
+      case "none":
+        console.info("[DB] DB_SYNC=none — Skipping automatic sync.");
+        break;
+      default:
+        console.info(`[DB] Unknown DB_SYNC mode "${DB_SYNC}". Using safe sync.`);
+        await sequelize.sync({ alter: false });
     }
   } catch (err) {
-    console.error('[DB] sequelize.sync failed:', err);
+    console.error("[DB] sequelize.sync failed:", err);
     process.exit(1);
   }
 
-  console.info(`[DB] Initialization complete ✅ (mode: ${DB_SYNC.toUpperCase()})`);
+  console.info(`[DB] Initialization complete ✅ (Mode: ${DB_SYNC.toUpperCase()})`);
 })();
