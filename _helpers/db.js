@@ -174,7 +174,7 @@ module.exports = db;
         break;
       case "alter":
         console.info("[DB] 🔄 DB_SYNC=alter — Syncing models with database...");
-        await sequelize.sync({ alter: true });
+        await sequelize.sync({ alter: false });
         console.info("[DB] ✅ Tables updated successfully.");
         break;
       case "none":
