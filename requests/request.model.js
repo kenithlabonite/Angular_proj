@@ -1,9 +1,9 @@
 // requests/request.model.js
-const { DataTypes } = require("sequelize");
+const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
   const Request = sequelize.define(
-    "Request",
+    'Request',
     {
       id: {
         type: DataTypes.INTEGER.UNSIGNED,
@@ -13,16 +13,16 @@ module.exports = (sequelize) => {
       accountId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: false,
-        references: { model: "Accounts", key: "id" }, // ✅ Capitalized for consistency
-        onUpdate: "CASCADE",
-        onDelete: "CASCADE",
+        references: { model: 'accounts', key: 'id' },
+        onUpdate: 'CASCADE',
+        onDelete: 'CASCADE',
       },
       type: {
-        type: DataTypes.ENUM("equipment", "leave", "resources"),
+        type: DataTypes.ENUM('equipment', 'leave', 'resources'),
         allowNull: false,
       },
       items: {
-        type: DataTypes.STRING(255),
+        type: DataTypes.TEXT, // store JSON string or plain text
         allowNull: false,
       },
       quantity: {
@@ -31,9 +31,9 @@ module.exports = (sequelize) => {
         defaultValue: 1,
       },
       status: {
-        type: DataTypes.ENUM("pending", "approved", "disapproved", "rejected"),
+        type: DataTypes.ENUM('draft', 'pending', 'approved', 'rejected'),
         allowNull: false,
-        defaultValue: "pending",
+        defaultValue: 'draft',
       },
       created: {
         type: DataTypes.DATE,
@@ -46,29 +46,24 @@ module.exports = (sequelize) => {
       },
     },
     {
-      tableName: "requests",
-      timestamps: true,
-      createdAt: "created",
-      updatedAt: "updated",
+      tableName: 'requests',
+      timestamps: false // using created/updated explicitly
     }
   );
 
-  // 🔗 Associations
   Request.associate = (models) => {
-    // Each request belongs to one account
     Request.belongsTo(models.Account, {
-      foreignKey: "accountId",
-      as: "account",
-      onDelete: "CASCADE",
-      onUpdate: "CASCADE",
+      foreignKey: 'accountId',
+      as: 'Account',
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
     });
 
-    // Each request may have one workflow tracking it
     Request.hasOne(models.Workflow, {
-      foreignKey: "requestId",
-      as: "workflow",
-      onDelete: "CASCADE",
-      onUpdate: "CASCADE",
+      foreignKey: 'requestId',
+      as: 'Workflow',
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
     });
   };
 

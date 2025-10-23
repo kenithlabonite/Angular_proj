@@ -4,7 +4,7 @@
         "port": 3306,
         "user": "root",
         "password": "bg5yi45i",
-        "database": "node-mysql-signup-verification-api"
+        "database": "angulardb"
     },
     "secret": "49857eae-5b2d-4e74-b5e7-99953f347936",
     "emailFrom": "info@node-mysql-signup-verification-api.com",

@@ -793,7 +793,7 @@ Size: 755 B
 
 ================================================================================
 File: config.json
-Size: 540 B
+Size: 515 B
 ================================================================================
 
 {
@@ -802,7 +802,7 @@ Size: 540 B
         "port": 3306,
         "user": "root",
         "password": "bg5yi45i",
-        "database": "node-mysql-signup-verification-api"
+        "database": "angulardb"
     },
     "secret": "49857eae-5b2d-4e74-b5e7-99953f347936",
     "emailFrom": "info@node-mysql-signup-verification-api.com",
@@ -1199,105 +1199,114 @@ async function transferDepartment(req, res, next) {
 
 ================================================================================
 File: employees\employee.model.js
-Size: 2.15 kB
+Size: 2.69 kB
 ================================================================================
 
 // employees/employee.model.js
-const { DataTypes } = require('sequelize');
+const { DataTypes } = require("sequelize");
 
 module.exports = (sequelize) => {
   const Employee = sequelize.define(
-    'Employee',
+    "Employee",
     {
+      // 🆔 Primary Key
       EmployeeID: {
-  type: DataTypes.STRING(20),
-  allowNull: false,
-  primaryKey: true,
-  field: 'EmployeeID',
-},
+        type: DataTypes.STRING(20),
+        allowNull: false,
+        primaryKey: true,
+      },
 
-
+      // 👤 Link to Account
       accountId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: false,
         references: {
-          model: 'accounts',
-          key: 'id',
+          model: "accounts",
+          key: "id",
         },
-        onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
+        onUpdate: "CASCADE",
+        onDelete: "CASCADE",
       },
 
+      // 💼 Link to Position (string or foreign key)
       position: {
         type: DataTypes.STRING(100),
         allowNull: true,
       },
 
+      // 🏢 Department reference (FK)
       departmentId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
-        references: {
-          model: 'departments',
-          key: 'id',
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'SET NULL',
+        // ⚠️ Removed redundant FK creation by Sequelize to avoid duplicate error
+        // The FK is already managed via manual associations in db.js
       },
 
+      // 📅 Date hired
       hireDate: {
         type: DataTypes.DATEONLY,
         allowNull: true,
       },
 
+      // ⚙️ Employment status
       status: {
-        type: DataTypes.ENUM('active', 'inactive'),
+        type: DataTypes.ENUM("active", "inactive"),
         allowNull: false,
-        defaultValue: 'active',
+        defaultValue: "active",
       },
 
+      // 🕒 Sequelize timestamps
       createdAt: {
         type: DataTypes.DATE,
         allowNull: true,
-        field: 'created',
+        field: "created",
       },
-
       updatedAt: {
         type: DataTypes.DATE,
         allowNull: true,
-        field: 'updated',
+        field: "updated",
       },
     },
     {
-      tableName: 'employees',
+      tableName: "employees",
       timestamps: true,
-      createdAt: 'created',
-      updatedAt: 'updated',
+      createdAt: "created",
+      updatedAt: "updated",
     }
   );
 
   // 🔗 Associations
   Employee.associate = (models) => {
+    // Account → Employee (1:1)
     if (models.Account) {
       Employee.belongsTo(models.Account, {
-        foreignKey: 'accountId',
-        targetKey: 'id',
-        as: 'Account',
+        foreignKey: "accountId",
+        targetKey: "id",
+        as: "Account",
+        onDelete: "CASCADE",
+        onUpdate: "CASCADE",
       });
     }
 
+    // Department → Employee (1:N)
     if (models.Department) {
       Employee.belongsTo(models.Department, {
-        foreignKey: 'departmentId',
-        targetKey: 'id',
-        as: 'Department',
+        foreignKey: "departmentId",
+        targetKey: "id",
+        as: "Department",
+        onDelete: "SET NULL",
+        onUpdate: "CASCADE",
       });
     }
 
+    // Employee → Workflow (1:N)
     if (models.Workflow) {
       Employee.hasMany(models.Workflow, {
-        foreignKey: 'employeeId',
-        sourceKey: 'EmployeeID',
-        as: 'Workflows',
+        foreignKey: "employeeId",
+        sourceKey: "EmployeeID",
+        as: "Workflows",
+        onDelete: "CASCADE",
+        onUpdate: "CASCADE",
       });
     }
   };
@@ -1308,7 +1317,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: employees\employee.service.js
-Size: 6.62 kB
+Size: 15.15 kB
 ================================================================================
 
 // employees/employee.service.js
@@ -1324,8 +1333,8 @@ module.exports = {
 };
 
 const ALLOWED_STATUS = ['active', 'inactive'];
+const Op = db.Sequelize.Op;
 
-// ====== QUERIES ======
 async function getAll() {
   return await db.Employee.findAll({
     include: [
@@ -1351,31 +1360,28 @@ async function generateNextEmployeeID() {
   const last = await db.Employee.findOne({ order: [['EmployeeID', 'DESC']] });
   let nextNum = 1;
   if (last && last.EmployeeID) {
-    const match = String(last.EmployeeID).match(/EMP0*([0-9]+)$/i);
-    if (match && match[1]) nextNum = parseInt(match[1], 10) + 1;
-    else nextNum = (await db.Employee.count()) + 1;
+    const m = String(last.EmployeeID).match(/EMP0*([0-9]+)$/i);
+    nextNum = m && m[1] ? parseInt(m[1], 10) + 1 : (await db.Employee.count()) + 1;
   }
   return `EMP${String(nextNum).padStart(3, '0')}`;
 }
 
-// ====== HELPERS ======
 async function resolveAccount(params) {
   if (params.accountId) {
-    const account = await db.Account.findByPk(params.accountId);
-    if (!account) throw 'Related account not found for given accountId';
-    return account;
+    const a = await db.Account.findByPk(params.accountId);
+    if (!a) throw 'Account not found';
+    return a;
   }
   if (params.email) {
-    const account = await db.Account.findOne({ where: { email: params.email } });
-    if (!account) throw 'Related account not found for given email';
-    return account;
+    const a = await db.Account.findOne({ where: { email: params.email } });
+    if (!a) throw 'Account not found';
+    return a;
   }
-  throw 'Please supply accountId or email for related account';
+  throw 'Please supply accountId or email';
 }
 
-function normalizeStatus(raw) {
-  const s = (raw === undefined || raw === null) ? '' : String(raw).trim().toLowerCase();
-  return s;
+function normalizeStatus(s) {
+  return s ? String(s).trim().toLowerCase() : '';
 }
 
 async function updateDepartmentCount(departmentId) {
@@ -1388,49 +1394,92 @@ async function updateDepartmentCount(departmentId) {
   }
 }
 
-// ====== CREATE ======
-async function create(params) {
-  if (!params || (!params.accountId && !params.email)) {
-    throw 'Please supply accountId or email for related account';
+async function validatePosition(params) {
+  if (!params || (params.positionId == null && !params.position)) return { positionId: null, positionName: null };
+
+  if (params.positionId != null) {
+    const pos = await db.Position.findByPk(params.positionId);
+    if (!pos) throw 'Position not found';
+    if (String(pos.status) !== 'active') throw 'Cannot assign a deactivated position';
+    return { positionId: pos.id, positionName: pos.position };
   }
 
-  const account = await resolveAccount(params);
-  const incomingStatus = normalizeStatus(params.status) || 'active';
-  if (!ALLOWED_STATUS.includes(incomingStatus)) throw 'Invalid status';
+  const pos = await db.Position.findOne({ where: { position: params.position } });
+  if (pos) {
+    if (String(pos.status) !== 'active') throw 'Cannot assign a deactivated position';
+    return { positionId: pos.id, positionName: pos.position };
+  }
 
-  // ensure one employee per account
-  const existingForAccount = await db.Employee.findOne({ where: { accountId: account.id } });
-  if (existingForAccount) throw 'Employee for this account already exists';
+  return { positionId: null, positionName: params.position || null };
+}
+
+async function resolveManager(params) {
+  if (!params || (!params.managerId && !params.managerEmployeeId)) return null;
+
+  // managerId assumed to be EmployeeID (like 'EMP001') or numeric PK; try both
+  if (params.managerId) {
+    // try find by primary key
+    let m = await db.Employee.findByPk(params.managerId);
+    if (m) return m;
+    // try find by EmployeeID string column
+    m = await db.Employee.findOne({ where: { EmployeeID: params.managerId } });
+    if (m) return m;
+  }
+
+  if (params.managerEmployeeId) {
+    const m2 = await db.Employee.findByPk(params.managerEmployeeId);
+    if (m2) return m2;
+  }
+
+  throw 'Selected manager not found';
+}
+
+async function create(params) {
+  if (!params || (!params.accountId && !params.email)) throw 'Please supply accountId or email';
+  const account = await resolveAccount(params);
+
+  const status = normalizeStatus(params.status) || 'active';
+  if (!ALLOWED_STATUS.includes(status)) throw 'Invalid status';
+
+  const existing = await db.Employee.findOne({ where: { accountId: account.id } });
+  if (existing) throw 'Employee for this account already exists';
+
+  const pos = await validatePosition(params);
+
+  // allow only one active President
+  if (pos.positionName && pos.positionName.trim().toLowerCase() === 'president') {
+    const existingPresident = await db.Employee.findOne({
+      where: db.sequelize.and(
+        db.sequelize.where(db.sequelize.fn('lower', db.sequelize.col('position')), 'president'),
+        { status: 'active' }
+      )
+    });
+    if (existingPresident) throw 'An active President already exists';
+  }
+
+  // resolve manager (optional)
+  let manager = null;
+  if (params.managerId) {
+    manager = await resolveManager(params);
+    if (!manager) throw 'Manager not found';
+  }
 
   const base = {
     accountId: account.id,
-    position: params.position || null,
+    position: pos.positionName,
+    positionId: pos.positionId,
+    managerId: manager ? manager.EmployeeID || manager.id : null, // store EmployeeID string if present
     departmentId: params.departmentId || null,
     hireDate: params.hireDate || null,
-    status: incomingStatus,
+    status,
     created: new Date()
   };
 
-  let employee = null;
-  if (params.EmployeeID) {
-    employee = await db.Employee.create({ ...base, EmployeeID: params.EmployeeID });
-  } else {
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      const candidateId = await generateNextEmployeeID();
-      try {
-        employee = await db.Employee.create({ ...base, EmployeeID: candidateId });
-        break;
-      } catch (err) {
-        if (err.name === 'SequelizeUniqueConstraintError' && attempt < 5) continue;
-        throw err;
-      }
-    }
-    if (!employee) throw 'Failed to generate unique EmployeeID';
-  }
+  const EmployeeID = params.EmployeeID || (await generateNextEmployeeID());
+  const employee = await db.Employee.create({ ...base, EmployeeID });
 
   if (employee.departmentId) await updateDepartmentCount(employee.departmentId);
 
-  // create onboarding workflow
   try {
     const dept = employee.departmentId ? await db.Department.findByPk(employee.departmentId) : null;
     await db.Workflow.create({
@@ -1439,20 +1488,37 @@ async function create(params) {
       details: `Onboarded to ${dept ? dept.departmentName : 'No Department'} as ${employee.position || 'Unassigned'} on ${employee.hireDate || 'N/A'}`,
       status: 'pending'
     });
-  } catch (wfErr) {
-    console.error('Failed to create onboarding workflow:', wfErr);
+  } catch (e) {
+    console.error('Workflow error:', e);
+  }
+
+  try {
+    if (pos.positionName && pos.positionName.trim().toLowerCase() === 'president' && pos.positionId) {
+      await db.Position.update({ status: 'deactive' }, { where: { id: pos.positionId } });
+    }
+  } catch (e) {
+    console.error('Failed to deactivate position record for President:', e);
   }
 
   return await getById(employee.EmployeeID);
 }
 
-// ====== UPDATE ======
 async function update(id, params) {
   const employee = await db.Employee.findByPk(id);
   if (!employee) throw 'Employee not found';
 
-  const oldDeptId = employee.departmentId;
+  // capture old values
+  const oldValues = {
+    accountId: employee.accountId,
+    positionId: employee.positionId,
+    position: employee.position,
+    departmentId: employee.departmentId,
+    hireDate: employee.hireDate ? employee.hireDate.toString() : null,
+    status: employee.status,
+    managerId: employee.managerId
+  };
 
+  // account change
   if (params.accountId && params.accountId !== employee.accountId) {
     const account = await db.Account.findByPk(params.accountId);
     if (!account) throw 'Related account not found for new accountId';
@@ -1461,52 +1527,219 @@ async function update(id, params) {
     employee.accountId = params.accountId;
   }
 
-  const allowed = ['position', 'departmentId', 'hireDate', 'status'];
-  for (const f of allowed) {
-    if (Object.prototype.hasOwnProperty.call(params, f)) employee[f] = params[f];
-  }
-
-  if (params.status) {
+  // status
+  if (Object.prototype.hasOwnProperty.call(params, 'status')) {
     const s = normalizeStatus(params.status);
     if (!ALLOWED_STATUS.includes(s)) throw 'Invalid status';
     employee.status = s;
   }
 
+  // position
+  if (Object.prototype.hasOwnProperty.call(params, 'positionId') || Object.prototype.hasOwnProperty.call(params, 'position')) {
+    const pos = await validatePosition(params);
+    const prospectiveStatus = Object.prototype.hasOwnProperty.call(params, 'status') ? normalizeStatus(params.status) : employee.status;
+
+    if (pos.positionName && pos.positionName.trim().toLowerCase() === 'president' && prospectiveStatus === 'active') {
+      const found = await db.Employee.findOne({
+        where: db.sequelize.and(
+          db.sequelize.where(db.sequelize.fn('lower', db.sequelize.col('position')), 'president'),
+          { status: 'active' },
+          { EmployeeID: { [Op.ne]: employee.EmployeeID } }
+        )
+      });
+      if (found) throw 'An active President already exists';
+    }
+
+    employee.positionId = pos.positionId;
+    employee.position = pos.positionName;
+  }
+
+  // manager
+  if (Object.prototype.hasOwnProperty.call(params, 'managerId')) {
+    if (params.managerId == null || params.managerId === '') {
+      employee.managerId = null;
+    } else {
+      const manager = await resolveManager({ managerId: params.managerId });
+      if (!manager) throw 'Manager not found';
+      if (String(manager.EmployeeID || manager.id) === String(employee.EmployeeID || employee.id)) throw 'Employee cannot be their own manager';
+      employee.managerId = manager.EmployeeID || manager.id;
+    }
+  }
+
+  // department & hireDate
+  if (Object.prototype.hasOwnProperty.call(params, 'departmentId')) employee.departmentId = params.departmentId;
+  if (Object.prototype.hasOwnProperty.call(params, 'hireDate')) employee.hireDate = params.hireDate;
+
   employee.updated = new Date();
   await employee.save();
 
-  // update department counts
-  if (oldDeptId && oldDeptId !== employee.departmentId) {
-    await updateDepartmentCount(oldDeptId);
+  // president auto-deactivate
+  try {
+    if (employee.position && employee.position.trim().toLowerCase() === 'president' && employee.positionId) {
+      await db.Position.update({ status: 'deactive' }, { where: { id: employee.positionId } });
+    }
+  } catch (e) {
+    console.error('Failed to deactivate position record for President on update:', e);
   }
-  if (employee.departmentId && oldDeptId !== employee.departmentId) {
-    await updateDepartmentCount(employee.departmentId);
 
-    // 🔥 create workflow for transfer
+  // reactivate old president position if vacated
+  try {
+    const oldWasPresident = oldValues.position && oldValues.position.trim().toLowerCase() === 'president';
+    if (oldWasPresident) {
+      const other = await db.Employee.findOne({
+        where: db.sequelize.and(
+          db.sequelize.where(db.sequelize.fn('lower', db.sequelize.col('position')), 'president'),
+          { status: 'active' },
+          { EmployeeID: { [Op.ne]: employee.EmployeeID } }
+        )
+      });
+      if (!other) {
+        if (oldValues.positionId) {
+          await db.Position.update({ status: 'active' }, { where: { id: oldValues.positionId } });
+        } else if (oldValues.position) {
+          const p = await db.Position.findOne({ where: { position: oldValues.position } });
+          if (p) await p.update({ status: 'active' });
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error while reactivating old President position record:', e);
+  }
+
+  // update department counts and possibly create transfer workflow (existing behavior)
+  if (oldValues.departmentId && oldValues.departmentId !== employee.departmentId) {
+    await updateDepartmentCount(oldValues.departmentId);
+  }
+  if (employee.departmentId && oldValues.departmentId !== employee.departmentId) {
+    await updateDepartmentCount(employee.departmentId);
     try {
       const newDept = await db.Department.findByPk(employee.departmentId);
-      const oldDept = oldDeptId ? await db.Department.findByPk(oldDeptId) : null;
+      const oldDept = oldValues.departmentId ? await db.Department.findByPk(oldValues.departmentId) : null;
       await db.Workflow.create({
         employeeId: employee.EmployeeID,
         type: 'Transfer',
         details: `Transferred from ${oldDept ? oldDept.departmentName : 'None'} to ${newDept ? newDept.departmentName : 'None'}`,
         status: 'pending'
       });
-    } catch (wfErr) {
-      console.error('Failed to create transfer workflow:', wfErr);
+    } catch (e) {
+      console.error('Transfer workflow error:', e);
     }
+  }
+
+  // build detailed changes list
+  try {
+    const changes = [];
+
+    // account change -> show account identifiers (email or id)
+    if (oldValues.accountId !== employee.accountId) {
+      const oldAcc = oldValues.accountId ? await db.Account.findByPk(oldValues.accountId) : null;
+      const newAcc = employee.accountId ? await db.Account.findByPk(employee.accountId) : null;
+      changes.push(`account: ${oldAcc ? (oldAcc.email || oldAcc.id) : 'none'} → ${newAcc ? (newAcc.email || newAcc.id) : 'none'}`);
+    }
+
+    // position change (use names)
+    if ((oldValues.position || '') !== (employee.position || '')) {
+      changes.push(`position: ${oldValues.position || 'none'} → ${employee.position || 'none'}`);
+    }
+
+    // department change (resolve names)
+    if (oldValues.departmentId !== employee.departmentId) {
+      const oldD = oldValues.departmentId ? await db.Department.findByPk(oldValues.departmentId) : null;
+      const newD = employee.departmentId ? await db.Department.findByPk(employee.departmentId) : null;
+      changes.push(`department: ${oldD ? oldD.departmentName : 'none'} → ${newD ? newD.departmentName : 'none'}`);
+    }
+
+    // hireDate change
+    const oldHire = oldValues.hireDate ? String(oldValues.hireDate).substring(0,10) : '';
+    const newHire = employee.hireDate ? String(employee.hireDate).substring(0,10) : '';
+    if (oldHire !== newHire) {
+      changes.push(`hireDate: ${oldHire || 'none'} → ${newHire || 'none'}`);
+    }
+
+    // status change
+    if (oldValues.status !== employee.status) {
+      changes.push(`status: ${oldValues.status || 'none'} → ${employee.status || 'none'}`);
+    }
+
+    // manager change (resolve EmployeeID or id)
+    if ((oldValues.managerId || null) !== (employee.managerId || null)) {
+      const oldMgr = oldValues.managerId ? await db.Employee.findByPk(oldValues.managerId) : null;
+      const newMgr = employee.managerId ? await db.Employee.findByPk(employee.managerId) : null;
+      const oldMgrLabel = oldMgr ? (oldMgr.EmployeeID || oldMgr.id) : 'none';
+      const newMgrLabel = newMgr ? (newMgr.EmployeeID || newMgr.id) : 'none';
+      changes.push(`manager: ${oldMgrLabel} → ${newMgrLabel}`);
+    }
+
+    // If no tracked changes, add a generic entry
+    const details = changes.length ? changes.join('; ') : 'No tracked fields changed (profile updated)';
+
+    // create a workflow entry with the detailed changes
+    await db.Workflow.create({
+      employeeId: employee.EmployeeID,
+      type: 'Field Updates',
+      details,
+      status: 'pending'
+    });
+  } catch (e) {
+    console.error('Workflow creation error (detailed changes):', e);
   }
 
   return await getById(id);
 }
 
-// ====== DELETE ======
+
+
 async function _delete(id) {
-  const employee = await db.Employee.findByPk(id);
-  if (!employee) throw 'Employee not found';
-  const deptId = employee.departmentId;
-  await employee.destroy();
+  const emp = await db.Employee.findByPk(id);
+  if (!emp) throw 'Employee not found';
+  const deptId = emp.departmentId;
+  const wasPresident = emp.position && emp.position.trim().toLowerCase() === 'president';
+  const posId = emp.positionId || null;
+  const posName = emp.position || null;
+
+  await emp.destroy();
   if (deptId) await updateDepartmentCount(deptId);
+
+  if (wasPresident) {
+    const other = await db.Employee.findOne({
+      where: db.sequelize.and(
+        db.sequelize.where(db.sequelize.fn('lower', db.sequelize.col('position')), 'president'),
+        { status: 'active' }
+      )
+    });
+    if (!other) {
+      try {
+        if (posId) {
+          await db.Position.update({ status: 'active' }, { where: { id: posId } });
+        } else if (posName) {
+          const p = await db.Position.findOne({ where: { position: posName } });
+          if (p) await p.update({ status: 'active' });
+        }
+      } catch (e) {
+        console.error('Failed to reactivate position after deleting President:', e);
+      }
+    }
+  }
+}
+
+
+================================================================================
+File: jsconfig.json
+Size: 262 B
+================================================================================
+
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "*": ["*", "src/*"]
+    },
+    "moduleResolution": "node",
+    "target": "es2021",
+    "checkJs": false,
+    "allowSyntheticDefaultImports": true
+  },
+  "exclude": ["node_modules"]
 }
 
 
@@ -1554,39 +1787,44 @@ Size: 997 B
 
 ================================================================================
 File: positions\position.controller.js
-Size: 1.48 kB
+Size: 2.47 kB
 ================================================================================
 
-// positions/position.controller.js
+// src/positions/position.controller.js
 const express = require('express');
 const router = express.Router();
-const positionService = require('./position.service'); // ✅ fixed path
+const positionService = require('./position.service');
 
-// Routes
+// ===== ROUTES =====
 router.get('/', getAll);
 router.get('/:id', getById);
 router.post('/', create);
 router.put('/:id', update);
+router.patch('/:id/status', updateStatus);
 router.delete('/:id', remove);
 
 module.exports = router;
 
-// Controller functions
+// ===== CONTROLLERS =====
+
 async function getAll(req, res, next) {
   try {
     const positions = await positionService.getAll();
     res.json(positions);
   } catch (err) {
-    next(err);
+    console.error('❌ Failed to get positions:', err);
+    res.status(500).json({ message: err.message || 'Failed to get positions' });
   }
 }
 
 async function getById(req, res, next) {
   try {
     const position = await positionService.getById(req.params.id);
+    if (!position) return res.status(404).json({ message: 'Position not found' });
     res.json(position);
   } catch (err) {
-    res.status(404).json({ message: err.message });
+    console.error('❌ Failed to get position by ID:', err);
+    res.status(404).json({ message: err.message || 'Position not found' });
   }
 }
 
@@ -1595,7 +1833,8 @@ async function create(req, res, next) {
     const position = await positionService.create(req.body);
     res.status(201).json(position);
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error('❌ Failed to create position:', err);
+    res.status(400).json({ message: err.message || 'Failed to create position' });
   }
 }
 
@@ -1604,7 +1843,19 @@ async function update(req, res, next) {
     const position = await positionService.update(req.params.id, req.body);
     res.json(position);
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error('❌ Failed to update position:', err);
+    res.status(400).json({ message: err.message || 'Failed to update position' });
+  }
+}
+
+async function updateStatus(req, res, next) {
+  try {
+    const { status } = req.body;
+    const result = await positionService.updateStatus(req.params.id, status);
+    res.json(result);
+  } catch (err) {
+    console.error('❌ Failed to update position status:', err);
+    res.status(400).json({ message: err.message || 'Failed to update position status' });
   }
 }
 
@@ -1613,32 +1864,78 @@ async function remove(req, res, next) {
     const result = await positionService.remove(req.params.id);
     res.json(result);
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error('❌ Failed to delete position:', err);
+    res.status(400).json({ message: err.message || 'Failed to delete position' });
   }
 }
 
 
 ================================================================================
 File: positions\position.model.js
-Size: 407 B
+Size: 1.64 kB
 ================================================================================
 
 // positions/position.model.js
-const { DataTypes } = require('sequelize');
+const { DataTypes } = require("sequelize");
 
 module.exports = (sequelize) => {
-  const Position = sequelize.define('Position', {
-    id: {
-      type: DataTypes.INTEGER,
-      autoIncrement: true,
-      primaryKey: true
+  const Position = sequelize.define(
+    "Position",
+    {
+      id: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        autoIncrement: true,
+        primaryKey: true,
+      },
+      position: {
+        type: DataTypes.STRING(100),
+        allowNull: false,
+        unique: true,
+      },
+      status: {
+        type: DataTypes.ENUM("active", "deactive"),
+        allowNull: false,
+        defaultValue: "active",
+      },
+      createdAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        field: "created",
+      },
+      updatedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+        field: "updated",
+      },
     },
-    position: {
-      type: DataTypes.STRING(100),
-      allowTopic: false,
-      unique: true
+    {
+      tableName: "positions",
+      timestamps: true,
+      createdAt: "created",
+      updatedAt: "updated",
     }
-  });
+  );
+
+  /**
+   * ✅ Update the status of a position
+   * @param {number} id - The ID of the position
+   * @param {'active' | 'deactive'} newStatus - The new status value
+   * @returns {Promise<Object|null>} - The updated position or null if not found
+   */
+  Position.editStatus = async function (id, newStatus) {
+    if (!["active", "deactive"].includes(newStatus)) {
+      throw new Error("Invalid status value. Must be 'active' or 'deactive'.");
+    }
+
+    const position = await Position.findByPk(id);
+    if (!position) {
+      throw new Error("Position not found.");
+    }
+
+    position.status = newStatus;
+    await position.save();
+    return position;
+  };
 
   return Position;
 };
@@ -1646,18 +1943,19 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: positions\position.service.js
-Size: 1.52 kB
+Size: 1.98 kB
 ================================================================================
 
 // positions/position.service.js
-const db = require('../_helpers/db');
+const db = require("../_helpers/db");
 
 module.exports = {
   getAll,
   getById,
   create,
   update,
-  remove
+  remove,
+  updateStatus, // ✅ Added new function
 };
 
 // ✅ Get all positions
@@ -1668,29 +1966,33 @@ async function getAll() {
 // ✅ Get a position by ID
 async function getById(id) {
   const position = await db.Position.findByPk(id);
-  if (!position) throw new Error('Position not found');
+  if (!position) throw new Error("Position not found");
   return position;
 }
 
 // ✅ Create a new position
 async function create(params) {
-  if (!params.position) throw new Error('Position name is required');
+  if (!params.position) throw new Error("Position name is required");
 
-  const existing = await db.Position.findOne({ where: { position: params.position } });
+  const existing = await db.Position.findOne({
+    where: { position: params.position },
+  });
   if (existing) throw new Error(`Position "${params.position}" already exists`);
 
-  const newPosition = await db.Position.create(params);
-  return newPosition;
+  return await db.Position.create(params);
 }
 
-// ✅ Update a position by ID
+// ✅ Update a position (name, etc.)
 async function update(id, params) {
   const position = await getById(id);
 
-  // Check for duplicate if updating name
+  // Prevent duplicate names
   if (params.position && params.position !== position.position) {
-    const duplicate = await db.Position.findOne({ where: { position: params.position } });
-    if (duplicate) throw new Error(`Position "${params.position}" already exists`);
+    const duplicate = await db.Position.findOne({
+      where: { position: params.position },
+    });
+    if (duplicate)
+      throw new Error(`Position "${params.position}" already exists`);
   }
 
   Object.assign(position, params);
@@ -1698,17 +2000,33 @@ async function update(id, params) {
   return position;
 }
 
-// ✅ Delete a position by ID
+// ✅ Delete a position
 async function remove(id) {
   const position = await getById(id);
   await position.destroy();
-  return { message: 'Position deleted successfully' };
+  return { message: "Position deleted successfully" };
+}
+
+// ✅ NEW: Update only the status field
+async function updateStatus(id, status) {
+  if (!["active", "deactive"].includes(status)) {
+    throw new Error("Invalid status value. Must be 'active' or 'deactive'.");
+  }
+
+  const position = await getById(id);
+  position.status = status;
+  await position.save();
+
+  return {
+    message: `Position "${position.position}" status updated to "${status}".`,
+    position,
+  };
 }
 
 
 ================================================================================
 File: README.md
-Size: 15 B
+Size: 16 B
 ================================================================================
 
 # Angular_proj
@@ -1716,19 +2034,23 @@ Size: 15 B
 
 ================================================================================
 File: requests\index.js
-Size: 519 B
+Size: 677 B
 ================================================================================
 
-// requests/index.js
 const express = require('express');
 const router = express.Router();
 const controller = require('./request.controller');
 
+// Correct usage:
+router.post('/submit', controller.createPendingSchema, controller.createPending);
+router.post('/draft', controller.createDraftSchema, controller.createDraft);
+router.get('/approver', controller.getAllVisibleToApprover);
+
+// CRUD
 router.get('/', controller.getAll);
 router.get('/:requestId', controller.getById);
 router.post('/', controller.createSchema, controller.create);
 router.put('/:requestId', controller.updateSchema, controller.update);
-router.post('/:requestId', controller.updateSchema, controller.update);
 router.delete('/:requestId', controller.delete);
 
 module.exports = router;
@@ -1736,7 +2058,7 @@ module.exports = router;
 
 ================================================================================
 File: requests\request.controller.js
-Size: 2.39 kB
+Size: 3.6 kB
 ================================================================================
 
 // requests/request.controller.js
@@ -1746,92 +2068,119 @@ const requestService = require('./request.service');
 
 module.exports = {
   getAll,
+  getAllVisibleToApprover,
   getById,
   createSchema,
   create,
+  createDraftSchema,
+  createDraft,
+  createPendingSchema,
+  createPending,
   updateSchema,
   update,
-  delete: _delete
+  delete: _delete,
 };
 
-// ------------------ Schemas ------------------
+// Base schema (items accepted as JSON string)
+const baseSchema = {
+  accountId: Joi.number().optional(),
+  employeeEmail: Joi.string().email().optional(),
+  type: Joi.string().valid('equipment', 'leave', 'resources').required(),
+  items: Joi.string().trim().min(1).required(),
+  quantity: Joi.number().integer().min(1).required(),
+};
 
 function createSchema(req, res, next) {
-  const schema = Joi.object({
-    accountId: Joi.number().required(),
-    employeeEmail: Joi.string().email().optional(),
-    type: Joi.string().valid('equipment', 'leave', 'resources').required(),
-    items: Joi.string().trim().min(1).required(),
-    quantity: Joi.number().integer().min(1).required(),
-    status: Joi.string().valid('pending', 'approved', 'disapproved', 'rejected').optional()
-  });
+  const schema = Joi.object({ ...baseSchema, status: Joi.string().valid('draft', 'pending', 'approved', 'rejected').optional() });
+  validateRequest(req, next, schema);
+}
+
+function createDraftSchema(req, res, next) {
+  const schema = Joi.object({ ...baseSchema, status: Joi.string().valid('draft').optional() });
+  validateRequest(req, next, schema);
+}
+
+function createPendingSchema(req, res, next) {
+  const schema = Joi.object({ ...baseSchema, status: Joi.string().valid('pending').optional() });
   validateRequest(req, next, schema);
 }
 
 function updateSchema(req, res, next) {
   const schema = Joi.object({
-    accountId: Joi.number().optional(),
-    employeeEmail: Joi.string().email().optional(),
+    status: Joi.string().valid('draft', 'pending', 'approved', 'rejected').optional(),
+    items: Joi.string().min(1).optional(),
     type: Joi.string().valid('equipment', 'leave', 'resources').optional(),
-    items: Joi.string().trim().min(1).optional(),
     quantity: Joi.number().integer().min(1).optional(),
-    status: Joi.string().valid('pending', 'approved', 'disapproved', 'rejected').optional()
+    accountId: Joi.number().optional(),
   });
   validateRequest(req, next, schema);
 }
 
-// ------------------ Handlers ------------------
-
+// handlers
 async function getAll(req, res, next) {
   try {
     const list = await requestService.getAll();
     res.json(list);
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
+}
+
+async function getAllVisibleToApprover(req, res, next) {
+  try {
+    const list = await requestService.getAllVisibleToApprover();
+    res.json(list);
+  } catch (err) { next(err); }
 }
 
 async function getById(req, res, next) {
   try {
-    const r = await requestService.getById(req.params.requestId);
+    const id = req.params.requestId || req.params.id;
+    const r = await requestService.getById(id);
     if (!r) return res.sendStatus(404);
     res.json(r);
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 }
 
 async function create(req, res, next) {
   try {
     const created = await requestService.create(req.body);
     res.status(201).json(created);
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
+}
+
+async function createDraft(req, res, next) {
+  req.body.status = 'draft';
+  return create(req, res, next);
+}
+
+async function createPending(req, res, next) {
+  req.body.status = 'pending';
+  return create(req, res, next);
 }
 
 async function update(req, res, next) {
   try {
-    const updated = await requestService.update(req.params.requestId, req.body);
+    const id = req.params.requestId || req.params.id;
+    const updated = await requestService.update(id, req.body);
     res.json(updated);
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 }
 
 async function _delete(req, res, next) {
   try {
-    await requestService.delete(req.params.requestId);
+    const id = req.params.requestId || req.params.id;
+    // Deletion policy: only allow deletion if request is draft (business rule)
+    const r = await requestService.getById(Number(id));
+    if (!r) return res.status(404).json({ message: 'Request not found' });
+    if (r.status !== 'draft') return res.status(403).json({ message: 'Only drafts can be deleted' });
+    await requestService.delete(id);
     res.json({ message: 'Request deleted successfully' });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 }
 
 
 ================================================================================
 File: requests\request.model.js
-Size: 2.21 kB
+Size: 1.75 kB
 ================================================================================
 
 // requests/request.model.js
@@ -1841,85 +2190,66 @@ module.exports = (sequelize) => {
   const Request = sequelize.define(
     'Request',
     {
-      id: { // ✅ Use standard naming for Sequelize
+      id: {
         type: DataTypes.INTEGER.UNSIGNED,
         autoIncrement: true,
         primaryKey: true,
       },
-
       accountId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: false,
-        references: {
-          model: 'accounts', // ✅ FK to accounts table
-          key: 'id',
-        },
+        references: { model: 'accounts', key: 'id' },
         onUpdate: 'CASCADE',
         onDelete: 'CASCADE',
       },
-
       type: {
         type: DataTypes.ENUM('equipment', 'leave', 'resources'),
         allowNull: false,
       },
-
       items: {
-        type: DataTypes.STRING(255), // ✅ clear name and reasonable length
+        type: DataTypes.TEXT, // store JSON string or plain text
         allowNull: false,
       },
-
       quantity: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: false,
         defaultValue: 1,
       },
-
       status: {
-        type: DataTypes.ENUM('pending', 'approved', 'disapproved', 'rejected'),
+        type: DataTypes.ENUM('draft', 'pending', 'approved', 'rejected'),
         allowNull: false,
-        defaultValue: 'pending',
+        defaultValue: 'draft',
       },
-
-      createdAt: { // ✅ consistent with Sequelize timestamp standards
+      created: {
         type: DataTypes.DATE,
         allowNull: false,
         defaultValue: DataTypes.NOW,
-        field: 'created',
       },
-
-      updatedAt: {
+      updated: {
         type: DataTypes.DATE,
         allowNull: true,
-        field: 'updated',
       },
     },
     {
       tableName: 'requests',
-      timestamps: true, // ✅ enables createdAt and updatedAt automatically
-      createdAt: 'created',
-      updatedAt: 'updated',
+      timestamps: false // using created/updated explicitly
     }
   );
 
-  // 🔗 Associations
   Request.associate = (models) => {
-    if (models.Account) {
-      Request.belongsTo(models.Account, {
-        foreignKey: 'accountId',
-        targetKey: 'id',
-        as: 'Account',
-      });
-    }
+    Request.belongsTo(models.Account, {
+      foreignKey: 'accountId',
+      as: 'Account',
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
+    });
 
-    // ✅ One-to-one with Workflow (if applicable)
-    if (models.Workflow) {
-      Request.hasOne(models.Workflow, {
-        foreignKey: 'requestId',
-        as: 'Workflow',
-        onDelete: 'CASCADE',
-        onUpdate: 'CASCADE',
-      });
-    }
+    Request.hasOne(models.Workflow, {
+      foreignKey: 'requestId',
+      as: 'Workflow',
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE',
+    });
   };
 
   return Request;
@@ -1928,14 +2258,16 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: requests\request.service.js
-Size: 6.01 kB
+Size: 5.51 kB
 ================================================================================
 
 // requests/request.service.js
 const db = require('_helpers/db');
+const { Op } = require('sequelize');
 
 module.exports = {
   getAll,
+  getAllVisibleToApprover,
   getById,
   create,
   update,
@@ -1943,185 +2275,140 @@ module.exports = {
 };
 
 const ALLOWED_TYPES = ['equipment', 'leave', 'resources'];
-const ALLOWED_STATUS = ['pending', 'approved', 'disapproved', 'rejected'];
+const ALLOWED_STATUS = ['draft', 'pending', 'approved', 'rejected'];
 
-// ------------------------- Get all -------------------------
+// Employee view: all requests (includes drafts for own user)
 async function getAll() {
-  return await db.Request.findAll({
-    include: [
-      {
-        model: db.Account,
-        attributes: ['id', 'email', 'firstName', 'lastName'],
-        required: false,
-      },
-    ],
+  return db.Request.findAll({
+    include: [{ model: db.Account, attributes: ['id', 'email', 'firstName', 'lastName'], required: false }],
     order: [['created', 'DESC']],
   });
 }
 
-// ------------------------- Get by ID -------------------------
-async function getById(requestId) {
-  if (requestId === undefined || requestId === null) return null;
-  return await db.Request.findByPk(requestId, {
-    include: [
-      {
-        model: db.Account,
-        attributes: ['id', 'email', 'firstName', 'lastName'],
-        required: false,
-      },
-    ],
+// Approver view: hide drafts (unless admin on frontend calls /requests and filters)
+async function getAllVisibleToApprover() {
+  return db.Request.findAll({
+    where: { status: { [Op.ne]: 'draft' } },
+    include: [{ model: db.Account, attributes: ['id', 'email', 'firstName', 'lastName'], required: false }],
+    order: [['created', 'DESC']],
   });
 }
 
-// ------------------------- Helpers -------------------------
+async function getById(requestId) {
+  if (!requestId) return null;
+  return db.Request.findByPk(requestId, {
+    include: [{ model: db.Account, attributes: ['id', 'email', 'firstName', 'lastName'], required: false }],
+  });
+}
+
+// resolve accountId from email
 async function resolveAccountIdFromEmail(email) {
   if (!email) return null;
   const account = await db.Account.findOne({ where: { email } });
   return account ? account.id : null;
 }
 
-// ------------------------- Create -------------------------
 /**
- * params expected:
- *  { accountId?, employeeEmail?, type, items, quantity, status? }
+ * create(params)
+ * expected params: { accountId?, employeeEmail?, type, items, quantity, status? }
  */
 async function create(params) {
-  // 🔹 Resolve accountId if not provided
   let accountId = params.accountId ?? null;
   if (!accountId && params.employeeEmail) {
     accountId = await resolveAccountIdFromEmail(params.employeeEmail);
   }
-
   if (!accountId) throw 'accountId is required';
 
-  // 🔹 Validate type
-  if (!ALLOWED_TYPES.includes((params.type || '').toString())) {
-    throw 'Invalid request type';
-  }
+  if (!ALLOWED_TYPES.includes(String(params.type))) throw 'Invalid request type';
+  if (!params.items || String(params.items).trim() === '') throw 'items is required';
 
-  // 🔹 Validate items
-  if (!params.items || String(params.items).trim() === '') {
-    throw 'items is required';
-  }
-
-  // 🔹 Validate quantity
   const qty = Number(params.quantity);
-  if (!Number.isFinite(qty) || qty < 1) {
-    throw 'quantity must be an integer >= 1';
-  }
+  if (!Number.isFinite(qty) || qty < 1) throw 'quantity must be >= 1';
 
-  // 🔹 Validate status if provided
-  if (params.status && !ALLOWED_STATUS.includes(params.status)) {
-    throw 'Invalid status';
-  }
+  const status = params.status ? String(params.status) : 'draft';
+  if (!ALLOWED_STATUS.includes(status)) throw 'Invalid status';
 
-  // ✅ Create request record
   const request = await db.Request.create({
     accountId,
     type: params.type,
-    items: String(params.items).trim(),
+    items: typeof params.items === 'string' ? params.items : JSON.stringify(params.items),
     quantity: Math.trunc(qty),
-    status: params.status || 'pending',
+    status,
     created: new Date(),
   });
 
-  const requestId = request.id ?? request.requestId ?? null;
+  // create workflow only for pending
+  if (status === 'pending') {
+    createWorkflowForPending(request.id, accountId, params).catch((err) => {
+      console.error('Failed to create workflow:', err);
+    });
+  }
 
-  // ✅ Automatically create a linked workflow
+  return getById(request.id);
+}
+
+async function createWorkflowForPending(requestId, accountId, params) {
   try {
     const account = await db.Account.findByPk(accountId);
     const employee = await db.Employee.findOne({ where: { accountId } });
 
-    // 🧠 Convert JSON string or array into readable text
-    let itemDescription = '';
+    // readable summary
+    let itemDesc = '';
     if (Array.isArray(params.items)) {
-      itemDescription = params.items
-        .map(i => `${i.name}${i.quantity ? ` (x${i.quantity})` : ''}`)
-        .join(', ');
-    } else if (typeof params.items === 'string') {
+      itemDesc = params.items.map((i) => `${i.name}${i.quantity ? ` (x${i.quantity})` : ''}`).join(', ');
+    } else {
       try {
         const parsed = JSON.parse(params.items);
-        if (Array.isArray(parsed)) {
-          itemDescription = parsed
-            .map(i => `${i.name}${i.quantity ? ` (x${i.quantity})` : ''}`)
-            .join(', ');
-        } else {
-          itemDescription = params.items;
-        }
+        if (Array.isArray(parsed)) itemDesc = parsed.map((i) => `${i.name}${i.quantity ? ` (x${i.quantity})` : ''}`).join(', ');
+        else itemDesc = String(params.items);
       } catch {
-        itemDescription = params.items;
+        itemDesc = String(params.items);
       }
     }
-
-    const readableDetails = `${account.firstName} ${account.lastName} requested ${params.quantity}x ${itemDescription}`;
 
     await db.Workflow.create({
       requestId,
       employeeId: employee ? employee.EmployeeID : null,
       type: `Request-${params.type}`,
-      details: readableDetails,
+      details: `${account.firstName} ${account.lastName} requested ${params.quantity}x ${itemDesc}`,
       status: 'pending',
     });
   } catch (err) {
-    console.error('⚠️ Failed to create workflow for request:', err);
+    console.error('Workflow creation error', err);
   }
-
-  return await getById(requestId);
 }
 
-// ------------------------- Update -------------------------
+// update: primarily status. Allow limited edits when current request is draft.
 async function update(requestId, params) {
   const request = await db.Request.findByPk(requestId);
   if (!request) throw 'Request not found';
 
-  // 🔹 Resolve account if needed
-  if (!params.accountId && params.employeeEmail) {
-    const resolved = await resolveAccountIdFromEmail(params.employeeEmail);
-    if (resolved) params.accountId = resolved;
-  }
+  if (params.status && !ALLOWED_STATUS.includes(params.status)) throw 'Invalid status';
 
-  // 🔹 Validate related account
-  if (params.accountId && params.accountId !== request.accountId) {
-    const account = await db.Account.findByPk(params.accountId);
-    if (!account) throw 'Related account not found for new accountId';
-  }
-
-  // 🔹 Validate type/status
-  if (params.type && !ALLOWED_TYPES.includes(params.type))
-    throw 'Invalid request type';
-  if (params.status && !ALLOWED_STATUS.includes(params.status))
-    throw 'Invalid status';
-
-  // 🔹 Validate items/quantity
-  if (Object.prototype.hasOwnProperty.call(params, 'items')) {
-    if (!params.items || String(params.items).trim() === '')
-      throw 'items cannot be empty';
-    request.items = String(params.items).trim();
-  }
-
-  if (Object.prototype.hasOwnProperty.call(params, 'quantity')) {
-    const qty = Number(params.quantity);
-    if (!Number.isFinite(qty) || qty < 1)
-      throw 'quantity must be an integer >= 1';
-    request.quantity = Math.trunc(qty);
-  }
-
-  // 🔹 Copy other allowed fields
-  const allowed = ['accountId', 'type', 'status'];
-  for (const f of allowed) {
-    if (Object.prototype.hasOwnProperty.call(params, f)) {
-      request[f] = params[f];
+  // If request is draft, allow editing items/type/quantity/accountId before submitting
+  if (request.status === 'draft') {
+    if (params.type && ALLOWED_TYPES.includes(params.type)) request.type = params.type;
+    if (Object.prototype.hasOwnProperty.call(params, 'items') && String(params.items).trim() !== '') request.items = typeof params.items === 'string' ? params.items : JSON.stringify(params.items);
+    if (Object.prototype.hasOwnProperty.call(params, 'quantity')) {
+      const qty = Number(params.quantity);
+      if (!Number.isFinite(qty) || qty < 1) throw 'quantity must be >= 1';
+      request.quantity = Math.trunc(qty);
     }
+    if (params.accountId) request.accountId = params.accountId;
   }
+
+  // Status transitions: allow setting status (pending/approved/rejected/draft) as requested by authorized controllers
+  if (params.status) request.status = params.status;
 
   request.updated = new Date();
   await request.save();
 
-  const pk = request.requestId ?? request.id ?? null;
-  return await getById(pk);
+  // If status transitioned to pending/approved/rejected, optionally update workflow
+  // (left as is — controllers or workflow service can update workflow as needed)
+
+  return getById(requestId);
 }
 
-// ------------------------- Delete -------------------------
 async function _delete(requestId) {
   const r = await db.Request.findByPk(requestId);
   if (!r) throw 'Request not found';
@@ -2956,10 +3243,9 @@ module.exports = router;
 
 ================================================================================
 File: workflows\workflow.model.js
-Size: 2.05 kB
+Size: 1.83 kB
 ================================================================================
 
-// models/workflow.model.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
@@ -2971,52 +3257,39 @@ module.exports = (sequelize) => {
         autoIncrement: true,
         primaryKey: true,
       },
-
       employeeId: {
         type: DataTypes.STRING(20),
         allowNull: false,
-        references: {
-          model: 'employees',
-          key: 'EmployeeID'
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'CASCADE'
-      },
-
-      requestId: {
-        type: DataTypes.INTEGER.UNSIGNED,
-        allowNull: true,
-        references: {
-          model: 'requests',
-          key: 'id',
-        },
+        references: { model: 'employees', key: 'EmployeeID' },
         onUpdate: 'CASCADE',
         onDelete: 'CASCADE',
       },
-
+      requestId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+        references: { model: 'requests', key: 'id' },
+        onUpdate: 'CASCADE',
+        onDelete: 'CASCADE',
+      },
       type: {
         type: DataTypes.STRING(50),
         allowNull: false,
       },
-
       details: {
         type: DataTypes.JSON,
         allowNull: false,
       },
-
       status: {
         type: DataTypes.ENUM('pending', 'approved', 'rejected', 'completed'),
         allowNull: false,
         defaultValue: 'pending',
       },
-
       createdAt: {
         type: DataTypes.DATE,
         allowNull: false,
         defaultValue: DataTypes.NOW,
         field: 'created',
       },
-
       updatedAt: {
         type: DataTypes.DATE,
         allowNull: false,
@@ -3032,23 +3305,18 @@ module.exports = (sequelize) => {
     }
   );
 
-  // 🔗 Associations
   Workflow.associate = (models) => {
-    if (models.Employee) {
-      Workflow.belongsTo(models.Employee, {
-        foreignKey: 'employeeId',
-        targetKey: 'EmployeeID',
-        as: 'Employee',
-      });
-    }
+    Workflow.belongsTo(models.Employee, {
+      foreignKey: 'employeeId',
+      targetKey: 'EmployeeID',
+      as: 'employee',
+    });
 
-    if (models.Request) {
-      Workflow.belongsTo(models.Request, {
-        foreignKey: 'requestId',
-        targetKey: 'id',
-        as: 'Request',
-      });
-    }
+    Workflow.belongsTo(models.Request, {
+      foreignKey: 'requestId',
+      targetKey: 'id',
+      as: 'request',
+    });
   };
 
   return Workflow;
@@ -3172,58 +3440,60 @@ async function reject(id) {
 
 ================================================================================
 File: _helpers\db.js
-Size: 6.65 kB
+Size: 6.82 kB
 ================================================================================
 
 // src/_helpers/db.js
-const fs = require('fs');
-const path = require('path');
-const mysql = require('mysql2/promise');
-const { Sequelize } = require('sequelize');
+const fs = require("fs");
+const path = require("path");
+const mysql = require("mysql2/promise");
+const { Sequelize } = require("sequelize");
 
-const configPath = path.resolve(__dirname, '..', 'config.json');
+const configPath = path.resolve(__dirname, "..", "config.json");
 let fileConfig = {};
 
-// ✅ Load config.json if available
+// 🧠 Load configuration safely
 if (fs.existsSync(configPath)) {
   try {
     fileConfig = require(configPath);
-  } catch (e) {
-    console.warn('[DB] Failed to parse config.json:', e.message);
+  } catch (err) {
+    console.warn("[DB] ⚠️ Failed to parse config.json:", err.message);
   }
 }
 
-// ✅ Database configuration (priority: environment → config.json → default)
+// ⚙️ Database configuration (env > config.json > default)
 const DB = {
-  host: process.env.DB_HOST || fileConfig.database?.host || 'localhost',
+  host: process.env.DB_HOST || fileConfig.database?.host || "localhost",
   port: Number(process.env.DB_PORT || fileConfig.database?.port || 3306),
-  user: process.env.DB_USER || fileConfig.database?.user || 'root',
-  password: process.env.DB_PASSWORD || fileConfig.database?.password || '',
-  database: process.env.DB_NAME || fileConfig.database?.database || 'node-mysql-signup-verification-api'
+  user: process.env.DB_USER || fileConfig.database?.user || "root",
+  password: process.env.DB_PASSWORD || fileConfig.database?.password || "",
+  database:
+    process.env.DB_NAME ||
+    fileConfig.database?.database ||
+    "node-mysql-signup-verification-api",
 };
 
-// ✅ Sync and connection settings
-const DB_SYNC = process.env.DB_SYNC || fileConfig.dbSync || 'forsce'; // 'alter' | 'force' | 'none'
-const SKIP_DB_CREATE = (process.env.SKIP_DB_CREATE || 'false').toLowerCase() === 'true';
+// 🔄 Sync and retry settings
+const DB_SYNC = (process.env.DB_SYNC || fileConfig.dbSync || "alter").toLowerCase(); // alter | force | none
+const SKIP_DB_CREATE =
+  (process.env.SKIP_DB_CREATE || "false").toLowerCase() === "true";
 const MAX_RETRIES = Number(process.env.DB_CONN_RETRIES || 5);
 const RETRY_DELAY_MS = Number(process.env.DB_CONN_RETRY_DELAY_MS || 3000);
 
-// ✅ Exportable db object
-module.exports = db = {
-  sequelize: null,
-  Sequelize
-};
+// 📦 Exportable db object
+const db = { sequelize: null, Sequelize };
+module.exports = db;
 
+// 🚀 Initialize database
 (async function initialize() {
   if (!DB.host || !DB.user || !DB.database) {
-    console.error('[DB] Missing configuration. Please check DB_HOST, DB_USER, and DB_NAME.');
+    console.error("[DB] ❌ Missing configuration. Check DB_HOST, DB_USER, and DB_NAME.");
     process.exit(1);
   }
 
-  // 🔁 Retry connection to MySQL
+  // 🔁 Retry MySQL connection
   let attempt = 0;
   let connection = null;
-
   while (attempt < MAX_RETRIES) {
     attempt++;
     try {
@@ -3231,17 +3501,17 @@ module.exports = db = {
         host: DB.host,
         port: DB.port,
         user: DB.user,
-        password: DB.password
+        password: DB.password,
       });
-      console.info(`[DB] Connected to MySQL (attempt ${attempt}).`);
+      console.info(`[DB] ✅ Connected to MySQL (attempt ${attempt}).`);
       break;
     } catch (err) {
-      console.warn(`[DB] Connection attempt ${attempt}/${MAX_RETRIES} failed: ${err.message}`);
+      console.warn(`[DB] ⚠️ Attempt ${attempt}/${MAX_RETRIES} failed: ${err.message}`);
       if (attempt >= MAX_RETRIES) {
-        console.error('[DB] Max connection attempts reached. Exiting.');
+        console.error("[DB] ❌ Max connection attempts reached. Exiting.");
         process.exit(1);
       }
-      await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
     }
   }
 
@@ -3249,105 +3519,122 @@ module.exports = db = {
   try {
     if (!SKIP_DB_CREATE) {
       await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB.database}\`;`);
-      console.info(`[DB] Ensured database "${DB.database}" exists.`);
+      console.info(`[DB] 🏗️ Database "${DB.database}" ensured.`);
     } else {
-      console.info('[DB] SKIP_DB_CREATE=true — skipping CREATE DATABASE step.');
+      console.info("[DB] ⚙️ SKIP_DB_CREATE=true — skipping CREATE DATABASE step.");
     }
   } catch (err) {
-    console.error('[DB] Failed ensuring database exists:', err.message);
+    console.error("[DB] ❌ Failed ensuring database exists:", err.message);
     process.exit(1);
   } finally {
     if (connection) await connection.end().catch(() => {});
   }
 
-  // 🔧 Initialize Sequelize
+  // 🔧 Initialize Sequelize ORM
   const sequelize = new Sequelize(DB.database, DB.user, DB.password, {
     host: DB.host,
     port: DB.port,
-    dialect: 'mysql',
-    logging: process.env.NODE_ENV === 'production' ? false : (msg) => console.debug('[sequelize]', msg),
-    define: { timestamps: false },
-    pool: { max: 10, min: 0, acquire: 30000, idle: 10000 }
+    dialect: "mysql",
+    logging:
+      process.env.NODE_ENV === "production"
+        ? false
+        : (msg) => console.debug("[sequelize]", msg),
+    define: { timestamps: true },
+    pool: { max: 10, min: 0, acquire: 30000, idle: 10000 },
   });
 
   db.sequelize = sequelize;
 
   // 🧩 Import models
   try {
-    db.Account = require(path.resolve(__dirname, '..', 'accounts', 'account.model.js'))(sequelize);
-    db.RefreshToken = require(path.resolve(__dirname, '..', 'accounts', 'refresh-token.model.js'))(sequelize);
-    db.Employee = require(path.resolve(__dirname, '..', 'employees', 'employee.model.js'))(sequelize);
-    db.Department = require(path.resolve(__dirname, '..', 'departments', 'department.model.js'))(sequelize);
-    db.Request = require(path.resolve(__dirname, '..', 'requests', 'request.model.js'))(sequelize);
-    db.Workflow = require(path.resolve(__dirname, '..', 'workflows', 'workflow.model.js'))(sequelize);
-    db.Position = require(path.resolve(__dirname, '..', 'positions', 'position.model.js'))(sequelize); // ✅ Position model
+    db.Account = require("../accounts/account.model")(sequelize);
+    db.RefreshToken = require("../accounts/refresh-token.model")(sequelize);
+    db.Employee = require("../employees/employee.model")(sequelize);
+    db.Department = require("../departments/department.model")(sequelize);
+    db.Position = require("../positions/position.model")(sequelize); // ✅ includes status field
+    db.Request = require("../requests/request.model")(sequelize);
+    db.Workflow = require("../workflows/workflow.model")(sequelize);
   } catch (err) {
-    console.error('[DB] Failed to load models:', err);
+    console.error("[DB] ❌ Failed to load models:", err);
     process.exit(1);
   }
 
-  // 🔗 Associate models if needed
-  Object.keys(db).forEach(key => {
+  // 🔗 Call associate() if defined inside models
+  Object.keys(db).forEach((key) => {
     const model = db[key];
     if (model?.associate) {
       try {
         model.associate(db);
-      } catch (e) {
-        console.warn(`[DB] associate() failed for ${key}: ${e.message}`);
+      } catch (err) {
+        console.warn(`[DB] ⚠️ associate() failed for ${key}: ${err.message}`);
       }
     }
   });
 
-  // 🔐 Define relationships
+  // 🔐 Manual relationships (for models without associate())
   if (db.Account && db.RefreshToken) {
-    db.Account.hasMany(db.RefreshToken, { foreignKey: 'accountId', onDelete: 'CASCADE' });
-    db.RefreshToken.belongsTo(db.Account, { foreignKey: 'accountId' });
+    db.Account.hasMany(db.RefreshToken, { foreignKey: "accountId", onDelete: "CASCADE" });
+    db.RefreshToken.belongsTo(db.Account, { foreignKey: "accountId" });
   }
 
   if (db.Account && db.Employee) {
-    db.Account.hasOne(db.Employee, { foreignKey: 'accountId', onDelete: 'CASCADE' });
-    db.Employee.belongsTo(db.Account, { foreignKey: 'accountId' });
+    db.Account.hasOne(db.Employee, { foreignKey: "accountId", onDelete: "CASCADE" });
+    db.Employee.belongsTo(db.Account, { foreignKey: "accountId" });
   }
 
   if (db.Department && db.Employee) {
-    db.Department.hasMany(db.Employee, { foreignKey: 'departmentId', sourceKey: 'id', onDelete: 'SET NULL' });
-    db.Employee.belongsTo(db.Department, { foreignKey: 'departmentId', targetKey: 'id' });
+    db.Department.hasMany(db.Employee, { foreignKey: "departmentId", onDelete: "SET NULL" });
+    db.Employee.belongsTo(db.Department, { foreignKey: "departmentId" });
   }
 
   if (db.Account && db.Request) {
-    db.Account.hasMany(db.Request, { foreignKey: 'accountId', onDelete: 'CASCADE' });
-    db.Request.belongsTo(db.Account, { foreignKey: 'accountId' });
+    db.Account.hasMany(db.Request, { foreignKey: "accountId", onDelete: "CASCADE" });
+    db.Request.belongsTo(db.Account, { foreignKey: "accountId" });
   }
 
   if (db.Employee && db.Workflow) {
-    db.Employee.hasMany(db.Workflow, { foreignKey: 'employeeId', sourceKey: 'EmployeeID', onDelete: 'CASCADE' });
-    db.Workflow.belongsTo(db.Employee, { foreignKey: 'employeeId', targetKey: 'EmployeeID' });
+    db.Employee.hasMany(db.Workflow, {
+      foreignKey: "employeeId",
+      sourceKey: "EmployeeID",
+      onDelete: "CASCADE",
+    });
+    db.Workflow.belongsTo(db.Employee, {
+      foreignKey: "employeeId",
+      targetKey: "EmployeeID",
+    });
   }
 
   if (db.Position && db.Employee) {
-    db.Position.hasMany(db.Employee, { foreignKey: 'positionId', sourceKey: 'id', onDelete: 'SET NULL' });
-    db.Employee.belongsTo(db.Position, { foreignKey: 'positionId', targetKey: 'id' });
+    db.Position.hasMany(db.Employee, { foreignKey: "positionId", onDelete: "SET NULL" });
+    db.Employee.belongsTo(db.Position, { foreignKey: "positionId" });
   }
 
-  // 🧭 Sync database schema
+  // 🧭 Sync schema (according to DB_SYNC)
   try {
-    if (DB_SYNC === 'none') {
-      console.info('[DB] DB_SYNC=none — skipping sequelize.sync().');
-    } else if (DB_SYNC === 'force') {
-      console.warn('[DB] DB_SYNC=force — dropping and recreating all tables...');
-      await sequelize.sync({ force: true });
-      console.info('[DB] Tables recreated successfully.');
-    } else {
-      console.info('[DB] DB_SYNC=alter — syncing tables to match models...');
-      await sequelize.sync({ alter: true });
-      console.info('[DB] Tables updated successfully. ');
+    switch (DB_SYNC) {
+      case "force":
+        console.warn("[DB] ⚠️ DB_SYNC=force — Dropping & recreating all tables...");
+        await sequelize.sync({ force: true });
+        console.info("[DB] ✅ Tables recreated successfully.");
+        break;
+      case "alter":
+        console.info("[DB] 🔄 DB_SYNC=alter — Syncing models with database...");
+        await sequelize.sync({ alter: false });
+        console.info("[DB] ✅ Tables updated successfully.");
+        break;
+      case "none":
+        console.info("[DB] 🚫 DB_SYNC=none — Skipping sync.");
+        break;
+      default:
+        console.info(`[DB] ⚙️ Unknown DB_SYNC mode "${DB_SYNC}". Using safe mode.`);
+        await sequelize.sync({ alter: false });
     }
   } catch (err) {
-    console.error('[DB] sequelize.sync failed:', err);
+    console.error("[DB] ❌ sequelize.sync failed:", err);
     process.exit(1);
   }
 
-  console.info('[DB] Initialization complete. ✅✅✅');
+  console.info(`[DB] ✅ Initialization complete (Mode: ${DB_SYNC.toUpperCase()})`);
 })();
 
 
