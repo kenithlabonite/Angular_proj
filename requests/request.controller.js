@@ -10,36 +10,22 @@ module.exports = {
   getById,
   createSchema,
   create,
-  createDraftSchema,
   createDraft,
-  createPendingSchema,
   createPending,
   updateSchema,
   update,
   delete: _delete,
 };
 
-// Base schema (items accepted as JSON string)
+// Base Joi schema
 const baseSchema = {
-  accountId: Joi.number().optional(),
-  employeeEmail: Joi.string().email().optional(),
   type: Joi.string().valid('equipment', 'leave', 'resources').required(),
   items: Joi.string().trim().min(1).required(),
   quantity: Joi.number().integer().min(1).required(),
 };
 
 function createSchema(req, res, next) {
-  const schema = Joi.object({ ...baseSchema, status: Joi.string().valid('draft', 'pending', 'approved', 'rejected').optional() });
-  validateRequest(req, next, schema);
-}
-
-function createDraftSchema(req, res, next) {
-  const schema = Joi.object({ ...baseSchema, status: Joi.string().valid('draft').optional() });
-  validateRequest(req, next, schema);
-}
-
-function createPendingSchema(req, res, next) {
-  const schema = Joi.object({ ...baseSchema, status: Joi.string().valid('pending').optional() });
+  const schema = Joi.object({ ...baseSchema, status: Joi.string().valid('draft', 'pending').optional() });
   validateRequest(req, next, schema);
 }
 
@@ -49,21 +35,28 @@ function updateSchema(req, res, next) {
     items: Joi.string().min(1).optional(),
     type: Joi.string().valid('equipment', 'leave', 'resources').optional(),
     quantity: Joi.number().integer().min(1).optional(),
-    accountId: Joi.number().optional(),
   });
   validateRequest(req, next, schema);
 }
 
-// handlers
+// Return current user's requests (includes drafts)
 async function getAll(req, res, next) {
   try {
-    const list = await requestService.getAll();
+    const user = req.user;
+    if (!user || !user.id) return res.status(401).json({ message: 'Unauthorized' });
+    const list = await requestService.getAll(user.id);
     res.json(list);
   } catch (err) { next(err); }
 }
 
+// Approver view: hide drafts
 async function getAllVisibleToApprover(req, res, next) {
   try {
+    const user = req.user;
+    if (!user || !user.role) return res.status(401).json({ message: 'Unauthorized' });
+    const role = String(user.role).toLowerCase();
+    if (role !== 'admin' && role !== 'approver') return res.status(403).json({ message: 'Forbidden' });
+
     const list = await requestService.getAllVisibleToApprover();
     res.json(list);
   } catch (err) { next(err); }
@@ -71,15 +64,18 @@ async function getAllVisibleToApprover(req, res, next) {
 
 async function getById(req, res, next) {
   try {
-    const id = req.params.requestId || req.params.id;
+    const id = req.params.id;
     const r = await requestService.getById(id);
     if (!r) return res.status(404).json({ message: 'Request not found' });
     res.json(r);
   } catch (err) { next(err); }
 }
 
+// Generic create (enforces ownership)
 async function create(req, res, next) {
   try {
+    if (!req.user || !req.user.id) return res.status(401).json({ message: 'Unauthorized' });
+    req.body.accountId = req.user.id;
     const created = await requestService.create(req.body);
     res.status(201).json(created);
   } catch (err) { next(err); }
@@ -97,7 +93,7 @@ async function createPending(req, res, next) {
 
 async function update(req, res, next) {
   try {
-    const id = req.params.requestId || req.params.id;
+    const id = req.params.id;
     const updated = await requestService.update(id, req.body);
     res.json(updated);
   } catch (err) { next(err); }
@@ -105,29 +101,21 @@ async function update(req, res, next) {
 
 async function _delete(req, res, next) {
   try {
-    const id = req.params.requestId || req.params.id;
-
-    // Ensure authentication middleware set req.user
+    const id = req.params.id;
     const user = req.user;
-    if (!user) return res.status(401).json({ message: 'Authentication required' });
+    if (!user || !user.id) return res.status(401).json({ message: 'Unauthorized' });
 
-    const r = await requestService.getById(Number(id));
+    const r = await requestService.getById(id);
     if (!r) return res.status(404).json({ message: 'Request not found' });
 
-    // Deletion policy:
-    // allow delete if request.status === 'draft' OR owner OR admin
-    const isOwner = r.accountId && user.id && Number(r.accountId) === Number(user.id);
-    const isAdmin = user.role && user.role.toString().toLowerCase() === (Role.Admin || 'admin').toLowerCase();
+    const isOwner = r.accountId && Number(r.accountId) === Number(user.id);
+    const isAdmin = String(user.role).toLowerCase() === 'admin';
 
     if (r.status === 'draft' || isOwner || isAdmin) {
-      await requestService.delete(Number(id));
+      await requestService.delete(id);
       return res.json({ message: 'Request deleted' });
     }
 
-    // forbidden
-    return res.status(403).json({ message: 'Cannot delete request: only draft requests, the owner, or an admin may delete this.' });
-  } catch (err) {
-    console.error('Error deleting request:', err);
-    return next(err);
-  }
+    return res.status(403).json({ message: 'Cannot delete request: only draft, owner, or admin may delete.' });
+  } catch (err) { next(err); }
 }

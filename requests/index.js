@@ -2,21 +2,28 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('./request.controller');
-const authorize = require('_middleware/authorize'); // ensure this middleware sets req.user
-const Role = require('_helpers/role'); // for role constants if needed
+const authorize = require('_middleware/authorize');
+const Role = require('_helpers/role');
 
-// Special endpoints
-router.post('/submit', controller.createPendingSchema, controller.createPending);
-router.post('/draft', controller.createDraftSchema, controller.createDraft);
-router.get('/approver', authorize(/* Approver role if you have one */), controller.getAllVisibleToApprover);
+// Save as Draft (user's own request, approvers can't see)
+router.post('/draft', authorize(), controller.createSchema, controller.createDraft);
 
-// CRUD
-router.get('/', authorize(), controller.getAll); // require auth
-router.get('/:requestId', authorize(), controller.getById);
-router.post('/', authorize(), controller.createSchema, controller.create);
-router.put('/:requestId', authorize(), controller.updateSchema, controller.update);
+// Submit for approval (status = pending)
+router.post('/pending', authorize(), controller.createSchema, controller.createPending);
 
-// IMPORTANT: require authentication for delete and ensure controller uses req.user
-router.delete('/:requestId', authorize(), controller.delete);
+// Approver / Manager view (hide drafts) - restricted to Admin/Approver
+router.get('/visible', authorize([Role.Admin, Role.Approver]), controller.getAllVisibleToApprover);
+
+// User view (includes own drafts)
+router.get('/', authorize(), controller.getAll);
+
+// Get single request by ID
+router.get('/:id', authorize(), controller.getById);
+
+// Update request
+router.put('/:id', authorize(), controller.updateSchema, controller.update);
+
+// Delete request
+router.delete('/:id', authorize(), controller.delete);
 
 module.exports = router;

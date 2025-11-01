@@ -2034,37 +2034,68 @@ Size: 16 B
 
 ================================================================================
 File: requests\index.js
-Size: 677 B
+Size: 1.41 kB
 ================================================================================
 
+// requests/index.js
 const express = require('express');
 const router = express.Router();
 const controller = require('./request.controller');
+const authorize = require('_middleware/authorize');
+const Role = require('_helpers/role');
 
-// Correct usage:
-router.post('/submit', controller.createPendingSchema, controller.createPending);
-router.post('/draft', controller.createDraftSchema, controller.createDraft);
-router.get('/approver', controller.getAllVisibleToApprover);
+// ---------------------------------------------------------------------------
+// ROUTES
+// ---------------------------------------------------------------------------
 
-// CRUD
-router.get('/', controller.getAll);
-router.get('/:requestId', controller.getById);
-router.post('/', controller.createSchema, controller.create);
-router.put('/:requestId', controller.updateSchema, controller.update);
-router.delete('/:requestId', controller.delete);
+// 📝 Save as Draft (user's own request, approvers can't see)
+router.post(
+  '/draft',
+  authorize(),                      // must be logged in
+  controller.createSchema,          // validate body
+  controller.createDraft            // handler
+);
+
+// 🚀 Submit for approval (status = pending)
+router.post(
+  '/pending',
+  authorize(),
+  controller.createSchema,
+  controller.createPending
+);
+
+// 👀 Approver / Manager view (hide drafts)
+router.get(
+  '/visible',
+  authorize([Role.Admin, Role.Approver]),  // restrict to managers/approvers/admins
+  controller.getAllVisibleToApprover
+);
+
+// 👤 User view (includes own drafts)
+router.get('/', authorize(), controller.getAll);
+
+// 🔍 Get single request by ID
+router.get('/:id', authorize(), controller.getById);
+
+// ✏️ Update
+router.put('/:id', authorize(), controller.updateSchema, controller.update);
+
+// ❌ Delete
+router.delete('/:id', authorize(), controller.delete);
 
 module.exports = router;
 
 
 ================================================================================
 File: requests\request.controller.js
-Size: 3.6 kB
+Size: 3.58 kB
 ================================================================================
 
 // requests/request.controller.js
 const Joi = require('joi');
 const validateRequest = require('_middleware/validate-request');
 const requestService = require('./request.service');
+const Role = require('_helpers/role');
 
 module.exports = {
   getAll,
@@ -2072,16 +2103,14 @@ module.exports = {
   getById,
   createSchema,
   create,
-  createDraftSchema,
   createDraft,
-  createPendingSchema,
   createPending,
   updateSchema,
   update,
   delete: _delete,
 };
 
-// Base schema (items accepted as JSON string)
+// Joi schemas
 const baseSchema = {
   accountId: Joi.number().optional(),
   employeeEmail: Joi.string().email().optional(),
@@ -2091,17 +2120,7 @@ const baseSchema = {
 };
 
 function createSchema(req, res, next) {
-  const schema = Joi.object({ ...baseSchema, status: Joi.string().valid('draft', 'pending', 'approved', 'rejected').optional() });
-  validateRequest(req, next, schema);
-}
-
-function createDraftSchema(req, res, next) {
-  const schema = Joi.object({ ...baseSchema, status: Joi.string().valid('draft').optional() });
-  validateRequest(req, next, schema);
-}
-
-function createPendingSchema(req, res, next) {
-  const schema = Joi.object({ ...baseSchema, status: Joi.string().valid('pending').optional() });
+  const schema = Joi.object({ ...baseSchema, status: Joi.string().valid('draft', 'pending').optional() });
   validateRequest(req, next, schema);
 }
 
@@ -2111,21 +2130,25 @@ function updateSchema(req, res, next) {
     items: Joi.string().min(1).optional(),
     type: Joi.string().valid('equipment', 'leave', 'resources').optional(),
     quantity: Joi.number().integer().min(1).optional(),
-    accountId: Joi.number().optional(),
   });
   validateRequest(req, next, schema);
 }
 
-// handlers
+// Routes
 async function getAll(req, res, next) {
   try {
-    const list = await requestService.getAll();
-    res.json(list);
+    const user = req.user;
+    const requests = await requestService.getAll(user.id);
+    res.json(requests);
   } catch (err) { next(err); }
 }
 
 async function getAllVisibleToApprover(req, res, next) {
   try {
+    const user = req.user;
+    if (!user || (user.role.toLowerCase() !== 'admin' && user.role.toLowerCase() !== 'approver')) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
     const list = await requestService.getAllVisibleToApprover();
     res.json(list);
   } catch (err) { next(err); }
@@ -2133,15 +2156,16 @@ async function getAllVisibleToApprover(req, res, next) {
 
 async function getById(req, res, next) {
   try {
-    const id = req.params.requestId || req.params.id;
+    const id = req.params.id;
     const r = await requestService.getById(id);
-    if (!r) return res.sendStatus(404);
+    if (!r) return res.status(404).json({ message: 'Request not found' });
     res.json(r);
   } catch (err) { next(err); }
 }
 
 async function create(req, res, next) {
   try {
+    req.body.accountId = req.user.id; // enforce ownership
     const created = await requestService.create(req.body);
     res.status(201).json(created);
   } catch (err) { next(err); }
@@ -2159,7 +2183,7 @@ async function createPending(req, res, next) {
 
 async function update(req, res, next) {
   try {
-    const id = req.params.requestId || req.params.id;
+    const id = req.params.id;
     const updated = await requestService.update(id, req.body);
     res.json(updated);
   } catch (err) { next(err); }
@@ -2167,13 +2191,20 @@ async function update(req, res, next) {
 
 async function _delete(req, res, next) {
   try {
-    const id = req.params.requestId || req.params.id;
-    // Deletion policy: only allow deletion if request is draft (business rule)
-    const r = await requestService.getById(Number(id));
+    const id = req.params.id;
+    const user = req.user;
+    const r = await requestService.getById(id);
     if (!r) return res.status(404).json({ message: 'Request not found' });
-    if (r.status !== 'draft') return res.status(403).json({ message: 'Only drafts can be deleted' });
-    await requestService.delete(id);
-    res.json({ message: 'Request deleted successfully' });
+
+    const isOwner = r.accountId && user.id && Number(r.accountId) === Number(user.id);
+    const isAdmin = user.role && user.role.toLowerCase() === 'admin';
+
+    if (r.status === 'draft' || isOwner || isAdmin) {
+      await requestService.delete(id);
+      return res.json({ message: 'Request deleted' });
+    }
+
+    return res.status(403).json({ message: 'Cannot delete request: only draft requests, the owner, or an admin may delete.' });
   } catch (err) { next(err); }
 }
 
@@ -2258,7 +2289,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: requests\request.service.js
-Size: 5.51 kB
+Size: 6.45 kB
 ================================================================================
 
 // requests/request.service.js
@@ -2266,8 +2297,8 @@ const db = require('_helpers/db');
 const { Op } = require('sequelize');
 
 module.exports = {
-  getAll,
-  getAllVisibleToApprover,
+  getAll,                    // user's own requests (includes drafts)
+  getAllVisibleToApprover,   // approver view (hides drafts)
   getById,
   create,
   update,
@@ -2277,31 +2308,62 @@ module.exports = {
 const ALLOWED_TYPES = ['equipment', 'leave', 'resources'];
 const ALLOWED_STATUS = ['draft', 'pending', 'approved', 'rejected'];
 
-// Employee view: all requests (includes drafts for own user)
-async function getAll() {
+/**
+ * Get all requests owned by a specific user (includes drafts)
+ */
+async function getAll(accountId) {
+  if (!accountId) throw new Error('accountId required');
+
   return db.Request.findAll({
-    include: [{ model: db.Account, attributes: ['id', 'email', 'firstName', 'lastName'], required: false }],
+    where: { accountId },
+    include: [
+      {
+        model: db.Account,
+        attributes: ['id', 'email', 'firstName', 'lastName'],
+        required: false
+      }
+    ],
     order: [['created', 'DESC']],
   });
 }
 
-// Approver view: hide drafts (unless admin on frontend calls /requests and filters)
+/**
+ * Get all requests visible to approvers/managers (hide drafts)
+ */
 async function getAllVisibleToApprover() {
   return db.Request.findAll({
     where: { status: { [Op.ne]: 'draft' } },
-    include: [{ model: db.Account, attributes: ['id', 'email', 'firstName', 'lastName'], required: false }],
+    include: [
+      {
+        model: db.Account,
+        attributes: ['id', 'email', 'firstName', 'lastName'],
+        required: false
+      }
+    ],
     order: [['created', 'DESC']],
   });
 }
 
+/**
+ * Get a request by ID with related account
+ */
 async function getById(requestId) {
   if (!requestId) return null;
+
   return db.Request.findByPk(requestId, {
-    include: [{ model: db.Account, attributes: ['id', 'email', 'firstName', 'lastName'], required: false }],
+    include: [
+      {
+        model: db.Account,
+        attributes: ['id', 'email', 'firstName', 'lastName'],
+        required: false
+      }
+    ],
   });
 }
 
-// resolve accountId from email
+/**
+ * Resolve account ID from email address
+ */
 async function resolveAccountIdFromEmail(email) {
   if (!email) return null;
   const account = await db.Account.findOne({ where: { email } });
@@ -2309,110 +2371,159 @@ async function resolveAccountIdFromEmail(email) {
 }
 
 /**
- * create(params)
- * expected params: { accountId?, employeeEmail?, type, items, quantity, status? }
+ * Normalize items (ensure stored JSON + readable summary)
+ */
+function normalizeItems(items) {
+  if (Array.isArray(items)) {
+    const stored = JSON.stringify(items);
+    const desc = items
+      .map(i => `${i.name ?? i}${i.quantity ? ` (x${i.quantity})` : ''}`)
+      .join(', ');
+    return { stored, desc };
+  }
+
+  if (typeof items === 'string') {
+    try {
+      const parsed = JSON.parse(items);
+      if (Array.isArray(parsed)) return normalizeItems(parsed);
+      return { stored: items, desc: String(items) };
+    } catch {
+      return { stored: items, desc: items };
+    }
+  }
+
+  return { stored: String(items ?? ''), desc: String(items ?? '') };
+}
+
+/**
+ * Create a new request (draft or pending)
  */
 async function create(params) {
+  if (!params) throw new Error('Missing parameters');
+
   let accountId = params.accountId ?? null;
   if (!accountId && params.employeeEmail) {
     accountId = await resolveAccountIdFromEmail(params.employeeEmail);
   }
-  if (!accountId) throw 'accountId is required';
+  if (!accountId) throw new Error('accountId is required');
 
-  if (!ALLOWED_TYPES.includes(String(params.type))) throw 'Invalid request type';
-  if (!params.items || String(params.items).trim() === '') throw 'items is required';
+  if (!ALLOWED_TYPES.includes(String(params.type))) {
+    throw new Error('Invalid request type');
+  }
 
-  const qty = Number(params.quantity);
-  if (!Number.isFinite(qty) || qty < 1) throw 'quantity must be >= 1';
+  if (!params.items || String(params.items).trim() === '') {
+    throw new Error('items is required');
+  }
+
+  const qty = Number(params.quantity ?? 1);
+  if (!Number.isFinite(qty) || qty < 1) {
+    throw new Error('quantity must be >= 1');
+  }
 
   const status = params.status ? String(params.status) : 'draft';
-  if (!ALLOWED_STATUS.includes(status)) throw 'Invalid status';
-
-  const request = await db.Request.create({
-    accountId,
-    type: params.type,
-    items: typeof params.items === 'string' ? params.items : JSON.stringify(params.items),
-    quantity: Math.trunc(qty),
-    status,
-    created: new Date(),
-  });
-
-  // create workflow only for pending
-  if (status === 'pending') {
-    createWorkflowForPending(request.id, accountId, params).catch((err) => {
-      console.error('Failed to create workflow:', err);
-    });
+  if (!ALLOWED_STATUS.includes(status)) {
+    throw new Error('Invalid status');
   }
 
-  return getById(request.id);
-}
+  const { stored, desc } = normalizeItems(params.items);
 
-async function createWorkflowForPending(requestId, accountId, params) {
+  const transaction = await db.sequelize.transaction();
   try {
-    const account = await db.Account.findByPk(accountId);
-    const employee = await db.Employee.findOne({ where: { accountId } });
+    const request = await db.Request.create({
+      accountId,
+      type: params.type,
+      items: stored,
+      quantity: Math.trunc(qty),
+      status,
+      created: new Date(),
+      updated: new Date(),
+    }, { transaction });
 
-    // readable summary
-    let itemDesc = '';
-    if (Array.isArray(params.items)) {
-      itemDesc = params.items.map((i) => `${i.name}${i.quantity ? ` (x${i.quantity})` : ''}`).join(', ');
-    } else {
-      try {
-        const parsed = JSON.parse(params.items);
-        if (Array.isArray(parsed)) itemDesc = parsed.map((i) => `${i.name}${i.quantity ? ` (x${i.quantity})` : ''}`).join(', ');
-        else itemDesc = String(params.items);
-      } catch {
-        itemDesc = String(params.items);
-      }
+    // Only create workflow if the request is "pending"
+    if (status === 'pending') {
+      await createWorkflowForPending(request.id, accountId, {
+        ...params,
+        itemDesc: desc,
+        quantity: Math.trunc(qty),
+      }, transaction);
     }
 
-    await db.Workflow.create({
-      requestId,
-      employeeId: employee ? employee.EmployeeID : null,
-      type: `Request-${params.type}`,
-      details: `${account.firstName} ${account.lastName} requested ${params.quantity}x ${itemDesc}`,
-      status: 'pending',
-    });
+    await transaction.commit();
+    return getById(request.id);
   } catch (err) {
-    console.error('Workflow creation error', err);
+    await transaction.rollback();
+    throw new Error(err.message ?? 'Failed to create request');
   }
 }
 
-// update: primarily status. Allow limited edits when current request is draft.
+/**
+ * Create workflow for pending requests
+ */
+async function createWorkflowForPending(requestId, accountId, params = {}, transaction = null) {
+  const account = await db.Account.findByPk(accountId);
+  const employee = await db.Employee.findOne({ where: { accountId } });
+
+  const details = `${account?.firstName ?? 'Unknown'} ${account?.lastName ?? ''} requested ${params.quantity ?? 1}x ${params.itemDesc ?? ''}`;
+
+  await db.Workflow.create({
+    requestId,
+    employeeId: employee ? employee.EmployeeID : null,
+    type: `Request-${params.type ?? 'unknown'}`,
+    details,
+    status: 'pending',
+    created: new Date(),
+    updated: new Date(),
+  }, transaction ? { transaction } : {});
+}
+
+/**
+ * Update request (only drafts editable)
+ */
 async function update(requestId, params) {
+  if (!requestId) throw new Error('requestId required');
+
   const request = await db.Request.findByPk(requestId);
-  if (!request) throw 'Request not found';
+  if (!request) throw new Error('Request not found');
 
-  if (params.status && !ALLOWED_STATUS.includes(params.status)) throw 'Invalid status';
+  if (params.status && !ALLOWED_STATUS.includes(params.status)) {
+    throw new Error('Invalid status');
+  }
 
-  // If request is draft, allow editing items/type/quantity/accountId before submitting
+  // Allow editing only if draft
   if (request.status === 'draft') {
-    if (params.type && ALLOWED_TYPES.includes(params.type)) request.type = params.type;
-    if (Object.prototype.hasOwnProperty.call(params, 'items') && String(params.items).trim() !== '') request.items = typeof params.items === 'string' ? params.items : JSON.stringify(params.items);
-    if (Object.prototype.hasOwnProperty.call(params, 'quantity')) {
+    if (params.type && ALLOWED_TYPES.includes(params.type)) {
+      request.type = params.type;
+    }
+    if (params.items && String(params.items).trim() !== '') {
+      const { stored } = normalizeItems(params.items);
+      request.items = stored;
+    }
+    if (params.quantity) {
       const qty = Number(params.quantity);
-      if (!Number.isFinite(qty) || qty < 1) throw 'quantity must be >= 1';
+      if (!Number.isFinite(qty) || qty < 1) throw new Error('quantity must be >= 1');
       request.quantity = Math.trunc(qty);
     }
-    if (params.accountId) request.accountId = params.accountId;
   }
 
-  // Status transitions: allow setting status (pending/approved/rejected/draft) as requested by authorized controllers
+  // Allow status change (controller enforces who can change it)
   if (params.status) request.status = params.status;
 
   request.updated = new Date();
   await request.save();
 
-  // If status transitioned to pending/approved/rejected, optionally update workflow
-  // (left as is — controllers or workflow service can update workflow as needed)
-
   return getById(requestId);
 }
 
+/**
+ * Delete request (owner, admin, or drafts)
+ */
 async function _delete(requestId) {
-  const r = await db.Request.findByPk(requestId);
-  if (!r) throw 'Request not found';
-  await r.destroy();
+  if (!requestId) throw new Error('requestId required');
+
+  const request = await db.Request.findByPk(requestId);
+  if (!request) throw new Error('Request not found');
+
+  await request.destroy();
 }
 
 
